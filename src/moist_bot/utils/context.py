@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import discord
 from discord.ext import commands
 
-from moist_bot.bot import MoistBot
+if TYPE_CHECKING:
+    from moist_bot.bot import MoistBot
+else:
+    type MoistBot = commands.Bot
 
 
 class ConfirmationView(discord.ui.View):
