@@ -18,7 +18,7 @@ dependencies = [
     "colorama>=0.4.6",
     "discord-ext-menus>=1.0.0a31",
     "discord-py>=2.6.0a5228",
-    "jishaku>=2.6.0",
+    "jishaku",
     "mypy-extensions>=1.1.0",
     "nekos-py>=1.1.0",
     "numpy>=2.3.2",
@@ -30,12 +30,12 @@ dependencies = [
     "python-dateutil>=2.9.0.post0",
     "pytube>=15.0.0",
     "requests>=2.32.4",
-    "typing-extensions>=4.14.1",
 ]
 
 [tool.uv.sources]
 discord-py = { git = "https://github.com/Rapptz/discord.py", rev = "master" }
 discord-ext-menus = { git = "https://github.com/Rapptz/discord-ext-menus", rev = "fbb8803779373357e274e1540b368365fd9d8074" }
+jishaku = { git = "https://github.com/scarletcafe/jishaku", rev = "master" }
 
 [project.scripts]
 app = "moist_bot.__main__:main"
