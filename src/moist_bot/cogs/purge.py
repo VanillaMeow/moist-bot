@@ -1,3 +1,5 @@
+# ruff: noqa: PLR0904
+
 from __future__ import annotations
 
 import datetime
@@ -21,30 +23,6 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 BULK_DELETE_LIMIT = datetime.timedelta(days=14)
-
-
-# ------------------------------------------------------------------
-# Converters
-# ------------------------------------------------------------------
-
-
-class Snowflake:
-    """Converter that accepts a raw Discord snowflake ID."""
-
-    @classmethod
-    async def convert(cls, ctx: Context, argument: str) -> int:
-        try:
-            return int(argument)
-        except ValueError:
-            param = ctx.current_parameter
-            name = param.name if param else 'argument'
-            msg = f'{name} expected a Discord ID, not {argument!r}'
-            raise commands.BadArgument(msg) from None
-
-
-# ------------------------------------------------------------------
-# Stateful purger
-# ------------------------------------------------------------------
 
 
 class ChannelPurger:
@@ -131,9 +109,21 @@ class ChannelPurger:
         return self.deleted
 
 
-# ------------------------------------------------------------------
 # Flag converters
-# ------------------------------------------------------------------
+
+
+class Snowflake:
+    """Converter that accepts a raw Discord snowflake ID."""
+
+    @classmethod
+    async def convert(cls, ctx: Context, argument: str) -> int:
+        try:
+            return int(argument)
+        except ValueError:
+            param = ctx.current_parameter
+            name = param.name if param else 'argument'
+            msg = f'{name} expected a Discord ID, not {argument!r}'
+            raise commands.BadArgument(msg) from None
 
 
 class PurgeFlags(commands.FlagConverter):
@@ -171,12 +161,10 @@ class WebhookPurgeFlags(PurgeFlags):
     )
 
 
-# ------------------------------------------------------------------
-# Cog
-# ------------------------------------------------------------------
+# The actual cog
 
 
-class Purge(commands.Cog):  # noqa: PLR0904
+class Purge(commands.Cog):
     """Bulk message deletion with various filters."""
 
     def __init__(self, client: MoistBot):
@@ -296,9 +284,7 @@ class Purge(commands.Cog):  # noqa: PLR0904
 
         await self._send_result(ctx, deleted)
 
-    # ------------------------------------------------------------------
     # Commands
-    # ------------------------------------------------------------------
 
     @commands.hybrid_group(fallback='all')
     @app_commands.guild_only()
