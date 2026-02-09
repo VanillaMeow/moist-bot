@@ -710,5 +710,5 @@ class Meta(commands.Cog):
         await ctx.send('go')
 
 
-async def setup(bot: MoistBot) -> None:
-    await bot.add_cog(Meta(bot))
+async def setup(client: MoistBot) -> None:
+    await client.add_cog(Meta(client))
