@@ -7,13 +7,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
-import asqlite
 import discord
 import discord.utils
 from discord.ext import commands
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from .config import TOKEN
 from .constants import COGS_FOLDER_PATH, DATETIME_NEVER, ROOT_PACKAGE
+from .db import create_engine, create_session_maker
 from .utils.context import Context
 
 if TYPE_CHECKING:
@@ -34,7 +35,8 @@ def _get_prefix(bot: MoistBot, message: Message) -> list[str]:
 class MoistBot(commands.Bot):
     executor: ProcessPoolExecutor
     session: aiohttp.ClientSession
-    pool: asqlite.Pool
+    db_engine: AsyncEngine
+    db_session_maker: async_sessionmaker[AsyncSession]
 
     reminder = None
 
@@ -54,7 +56,7 @@ class MoistBot(commands.Bot):
         )
         super().__init__(
             allowed_mentions=allowed_mentions,
-            help_attrs={'hidden': True},
+            help_attrs={'hidden': True},  # type: ignore[]
             command_prefix=_get_prefix,
             enable_debug_events=True,
             case_insensitive=True,
@@ -64,6 +66,8 @@ class MoistBot(commands.Bot):
         self.started_at: datetime = DATETIME_NEVER
         self.cooldowns: dict[int, datetime] = {}
         self.synced: bool = True
+        self.db_engine = create_engine()
+        self.db_session_maker = create_session_maker(self.db_engine)
 
     async def load_cogs(self) -> None:
         cogs = COGS_FOLDER_PATH.name
@@ -108,7 +112,7 @@ class MoistBot(commands.Bot):
         await super().close()
         self.executor.shutdown()
         await self.session.close()
-        await self.pool.close()
+        await self.db_engine.dispose()
         log.info('Bot closed.')
 
     async def on_ready(self) -> None:
