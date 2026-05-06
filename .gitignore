@@ -231,7 +231,8 @@ _dev/
 */assets/test.png
 
 # AI junk
-.claude/
-CLAUDE.md
-.gemini/
+AGENTS.MD
 GEMINI.md
+CLAUDE.md
+.claude/
+.gemini/
