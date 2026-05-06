@@ -83,7 +83,7 @@ class MoistBot(commands.Bot):
         self.session = aiohttp.ClientSession()
         await asyncio.create_task(self.load_cogs())
 
-    async def get_context(  # pyright: ignore[reportIncompatibleMethodOverride]
+    async def get_context(  # type: ignore[reportIncompatibleMethodOverride]
         self, origin: Message | Interaction, /, *, cls: type[Context] = Context
     ) -> Context:
         return await super().get_context(origin, cls=cls)
