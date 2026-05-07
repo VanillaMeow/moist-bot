@@ -35,10 +35,7 @@ class ChannelPurger:
 
     def __init__(
         self,
-        channel: discord.TextChannel
-        | discord.VoiceChannel
-        | discord.Thread
-        | discord.StageChannel,
+        channel: discord.abc.Messageable,
         *,
         before: discord.abc.Snowflake | None = None,
         after: discord.abc.Snowflake | None = None,
