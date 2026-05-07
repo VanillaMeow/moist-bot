@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import gc
 import inspect
 import io
 import logging
@@ -16,7 +17,7 @@ import time
 import traceback
 from contextlib import redirect_stdout
 from importlib.metadata import distribution, packages_distributions
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from unicodedata import name as unicodedata_name
 
 import discord
@@ -31,6 +32,7 @@ from moist_bot.utils.converters import get_media_from_ctx
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
+    from moist_bot.cogs.stats import Stats
     from moist_bot.utils.context import Context, GuildContext
 
 
@@ -140,7 +142,7 @@ class OwnerOnly(commands.Cog):
         await ctx.reply(f':white_check_mark: Unloaded {ext}.')
 
     @commands.is_owner()
-    @commands.group(hiddden=True)
+    @commands.group(hidden=True)
     async def debug(self, ctx: Context):
         pass
 
@@ -231,7 +233,9 @@ class OwnerOnly(commands.Cog):
 
     @debug.command()
     async def clear(self, ctx: Context):
-        os.system('cls||clear')  # noqa: ASYNC221, S605, S607
+        """Clears the console."""
+        clear_cmd = 'cls' if os.name == 'nt' else 'clear'
+        await asyncio.create_subprocess_shell(clear_cmd)
         await ctx.message.add_reaction('✅')
         log.info('Console cleared.')
 
@@ -547,7 +551,7 @@ class OwnerOnly(commands.Cog):
             except discord.HTTPException as e:
                 await ctx.send(f'Unexpected error: `{e}`')
 
-    @commands.command(name='health', aliases=['stats'])
+    @commands.command(name='health', aliases=['about'])
     @commands.is_owner()
     async def _bot_stats(self, ctx: Context):
         """Various bot stat monitoring tools."""
@@ -601,6 +605,14 @@ class OwnerOnly(commands.Cog):
 
         python_version, _, _ = sys.version.partition('(')
 
+        stats_cog = self.client.get_cog('Stats')
+        commands_run = 0
+        socket_events = 0
+        if stats_cog is not None:
+            stats = cast('Stats', stats_cog)
+            commands_run = sum(stats.command_stats.values())
+            socket_events = sum(stats.socket_stats.values())
+
         embed = (
             discord.Embed(
                 title='Bot Stats Report',
@@ -633,6 +645,16 @@ class OwnerOnly(commands.Cog):
                 name='Events Waiting',
                 value=f'Total: {len(event_tasks)}\nFuture task: {len(future_tasks)}',
                 inline=False,
+            )
+            .add_field(
+                name='Commands Run',
+                value=str(commands_run),
+                inline=True,
+            )
+            .add_field(
+                name='Socket Events',
+                value=str(socket_events),
+                inline=True,
             )
             .add_field(
                 name='Distribution',
