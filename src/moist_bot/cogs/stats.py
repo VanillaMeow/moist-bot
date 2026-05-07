@@ -6,24 +6,20 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
-import platform
 from collections import Counter
-from importlib.metadata import version
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict
 
 import discord
-import psutil
 from discord.ext import commands, tasks
-from sqlalchemy import func
-from sqlmodel import col, select
+from sqlmodel import col
 
-from moist_bot.db.models import CommandUsage
-from moist_bot.utils import formats, time
+from moist_bot.models import CommandUsage, GuildCount, LabelCount, UserCount
+from moist_bot.utils import formats
+from moist_bot.utils.formats import plural
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from sqlalchemy.ext.asyncio import AsyncSession
     from sqlalchemy.sql.elements import ColumnElement
 
     from moist_bot.bot import MoistBot
@@ -52,12 +48,14 @@ class Stats(commands.Cog):
 
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
-        self.process = psutil.Process()
+
         self._batch_lock = asyncio.Lock()
         self._data_batch: list[CommandBatchEntry] = []
+
         self.command_stats: Counter[str] = Counter()
         self.command_types_used: Counter[bool] = Counter()
         self.socket_stats: Counter[str] = Counter()
+
         self.bulk_insert_loop.start()
 
     @property
@@ -201,133 +199,52 @@ class Stats(commands.Cog):
         return max(1, min(days, MAX_HISTORY_DAYS))
 
     @staticmethod
-    def parse_datetime(value: Any) -> datetime.datetime | None:
-        if value is None:
-            return None
-        if isinstance(value, datetime.datetime):
-            dt = value
-        elif isinstance(value, str):
-            dt = datetime.datetime.fromisoformat(value)
-        else:
-            return None
-
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=datetime.UTC)
-        return dt.astimezone(datetime.UTC)
-
-    @staticmethod
-    def format_count_rows(rows: Iterable[Any], *, empty: str) -> str:
+    def format_count_rows(rows: Iterable[LabelCount], *, empty: str) -> str:
         lines = []
         for index, row in enumerate(rows, start=1):
-            label = str(row['label'])
-            uses = int(row['uses'])
-            lines.append(f'{index}. `{label}` ({formats.plural(uses):use})')
+            lines.append(f'{index}. `{row.label}` ({plural(row.uses):use})')
         return '\n'.join(lines) or empty
 
     @staticmethod
-    def format_user_rows(rows: Iterable[Any], *, empty: str) -> str:
+    def format_user_rows(rows: Iterable[UserCount], *, empty: str) -> str:
         lines = []
         for index, row in enumerate(rows, start=1):
-            author_id = int(row['author_id'])
-            uses = int(row['uses'])
-            lines.append(f'{index}. <@{author_id}> ({formats.plural(uses):use})')
+            lines.append(f'{index}. <@{row.author_id}> ({plural(row.uses):use})')
         return '\n'.join(lines) or empty
 
-    def format_guild_rows(self, rows: Iterable[Any], *, empty: str) -> str:
+    def format_guild_rows(self, rows: Iterable[GuildCount], *, empty: str) -> str:
         lines = []
         for index, row in enumerate(rows, start=1):
-            guild_id = cast('int | None', row['guild_id'])
-            uses = int(row['uses'])
-            if guild_id is None:
+            if row.guild_id is None:
                 guild = 'Private Message'
             else:
-                guild = str(self.bot.get_guild(guild_id) or f'<Unknown {guild_id}>')
-            lines.append(f'{index}. {guild} ({formats.plural(uses):use})')
+                guild = str(
+                    self.bot.get_guild(row.guild_id) or f'<Unknown {row.guild_id}>'
+                )
+            lines.append(f'{index}. {guild} ({plural(row.uses):use})')
         return '\n'.join(lines) or empty
-
-    async def fetch_count_and_first(
-        self,
-        session: AsyncSession,
-        *criteria: ColumnElement[bool],
-    ) -> tuple[int, datetime.datetime | None]:
-        result = await session.execute(
-            select(
-                func.count(col(CommandUsage.id)).label('total'),
-                func.min(col(CommandUsage.used_at)).label('first_used'),
-            ).where(*criteria)
-        )
-        row = result.mappings().one()
-        return int(row['total']), self.parse_datetime(row['first_used'])
-
-    async def fetch_top_commands(
-        self,
-        session: AsyncSession,
-        *criteria: ColumnElement[bool],
-    ) -> list[Any]:
-        command = col(CommandUsage.command)
-        uses = func.count(col(CommandUsage.id)).label('uses')
-        result = await session.execute(
-            select(command.label('label'), uses)
-            .where(*criteria)
-            .group_by(command)
-            .order_by(uses.desc())
-            .limit(5)
-        )
-        return list(result.mappings().all())
-
-    async def fetch_top_users(
-        self,
-        session: AsyncSession,
-        *criteria: ColumnElement[bool],
-    ) -> list[Any]:
-        author_id = col(CommandUsage.author_id)
-        uses = func.count(col(CommandUsage.id)).label('uses')
-        result = await session.execute(
-            select(author_id, uses)
-            .where(*criteria)
-            .group_by(author_id)
-            .order_by(uses.desc())
-            .limit(5)
-        )
-        return list(result.mappings().all())
-
-    async def fetch_top_guilds(
-        self,
-        session: AsyncSession,
-        *criteria: ColumnElement[bool],
-    ) -> list[Any]:
-        guild_id = col(CommandUsage.guild_id)
-        uses = func.count(col(CommandUsage.id)).label('uses')
-        result = await session.execute(
-            select(guild_id, uses)
-            .where(*criteria)
-            .group_by(guild_id)
-            .order_by(uses.desc())
-            .limit(5)
-        )
-        return list(result.mappings().all())
 
     async def show_guild_stats(self, ctx: GuildContext) -> None:
         async with self.bot.db_session_maker() as session:
-            total, first_used = await self.fetch_count_and_first(
+            total, first_used = await CommandUsage.count_and_first(
                 session,
                 col(CommandUsage.guild_id) == ctx.guild.id,
             )
-            top_commands = await self.fetch_top_commands(
+            top_commands = await CommandUsage.top_commands(
                 session,
                 col(CommandUsage.guild_id) == ctx.guild.id,
             )
-            top_commands_today = await self.fetch_top_commands(
+            top_commands_today = await CommandUsage.top_commands(
                 session,
                 col(CommandUsage.guild_id) == ctx.guild.id,
                 col(CommandUsage.used_at)
                 > discord.utils.utcnow() - datetime.timedelta(days=1),
             )
-            top_users = await self.fetch_top_users(
+            top_users = await CommandUsage.top_users(
                 session,
                 col(CommandUsage.guild_id) == ctx.guild.id,
             )
-            top_users_today = await self.fetch_top_users(
+            top_users_today = await CommandUsage.top_users(
                 session,
                 col(CommandUsage.guild_id) == ctx.guild.id,
                 col(CommandUsage.used_at)
@@ -335,9 +252,10 @@ class Stats(commands.Cog):
             )
 
         embed = discord.Embed(title='Server Command Stats', colour=ctx.me.colour)
-        embed.description = f'{formats.plural(total):command} used.'
+        embed.description = f'{plural(total):command} used.'
         embed.set_footer(text='Tracking command usage since')
         embed.timestamp = first_used or discord.utils.utcnow()
+
         embed.add_field(
             name='Top Commands',
             value=self.format_count_rows(top_commands, empty='No commands.'),
@@ -364,17 +282,17 @@ class Stats(commands.Cog):
         self, ctx: GuildContext, member: discord.Member
     ) -> None:
         async with self.bot.db_session_maker() as session:
-            total, first_used = await self.fetch_count_and_first(
+            total, first_used = await CommandUsage.count_and_first(
                 session,
                 col(CommandUsage.guild_id) == ctx.guild.id,
                 col(CommandUsage.author_id) == member.id,
             )
-            top_commands = await self.fetch_top_commands(
+            top_commands = await CommandUsage.top_commands(
                 session,
                 col(CommandUsage.guild_id) == ctx.guild.id,
                 col(CommandUsage.author_id) == member.id,
             )
-            top_commands_today = await self.fetch_top_commands(
+            top_commands_today = await CommandUsage.top_commands(
                 session,
                 col(CommandUsage.guild_id) == ctx.guild.id,
                 col(CommandUsage.author_id) == member.id,
@@ -384,7 +302,7 @@ class Stats(commands.Cog):
 
         embed = discord.Embed(title='Command Stats', colour=member.colour)
         embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-        embed.description = f'{formats.plural(total):command} used.'
+        embed.description = f'{plural(total):command} used.'
         embed.set_footer(text='First command used')
         embed.timestamp = first_used or discord.utils.utcnow()
         embed.add_field(
@@ -421,13 +339,13 @@ class Stats(commands.Cog):
     async def stats_global(self, ctx: Context) -> None:
         """Global all-time command statistics."""
         async with self.bot.db_session_maker() as session:
-            total, _first_used = await self.fetch_count_and_first(session)
-            top_commands = await self.fetch_top_commands(session)
-            top_guilds = await self.fetch_top_guilds(session)
-            top_users = await self.fetch_top_users(session)
+            total, _first_used = await CommandUsage.count_and_first(session)
+            top_commands = await CommandUsage.top_commands(session)
+            top_guilds = await CommandUsage.top_guilds(session)
+            top_users = await CommandUsage.top_users(session)
 
         embed = discord.Embed(title='Command Stats', colour=discord.Colour.blurple())
-        embed.description = f'{formats.plural(total):command} used.'
+        embed.description = f'{plural(total):command} used.'
         embed.add_field(
             name='Top Commands',
             value=self.format_count_rows(top_commands, empty='No commands.'),
@@ -450,23 +368,21 @@ class Stats(commands.Cog):
     async def stats_today(self, ctx: Context) -> None:
         """Global command statistics for the last 24 hours."""
         since = discord.utils.utcnow() - datetime.timedelta(days=1)
+
         async with self.bot.db_session_maker() as session:
-            uses = func.count(col(CommandUsage.id)).label('uses')
-            state_result = await session.execute(
-                select(col(CommandUsage.failed), uses)
-                .where(col(CommandUsage.used_at) > since)
-                .group_by(col(CommandUsage.failed))
-            )
-            states = list(state_result.mappings().all())
-            top_commands = await self.fetch_top_commands(
+            states = await CommandUsage.failed_counts(
                 session,
                 col(CommandUsage.used_at) > since,
             )
-            top_guilds = await self.fetch_top_guilds(
+            top_commands = await CommandUsage.top_commands(
                 session,
                 col(CommandUsage.used_at) > since,
             )
-            top_users = await self.fetch_top_users(
+            top_guilds = await CommandUsage.top_guilds(
+                session,
+                col(CommandUsage.used_at) > since,
+            )
+            top_users = await CommandUsage.top_users(
                 session,
                 col(CommandUsage.used_at) > since,
             )
@@ -474,17 +390,17 @@ class Stats(commands.Cog):
         success = 0
         failed = 0
         for row in states:
-            if bool(row['failed']):
-                failed += int(row['uses'])
+            if row.failed:
+                failed += row.uses
             else:
-                success += int(row['uses'])
+                success += row.uses
 
         embed = discord.Embed(
             title='Last 24 Hour Command Stats',
             colour=discord.Colour.blurple(),
         )
         embed.description = (
-            f'{formats.plural(success + failed):command} used today. '
+            f'{plural(success + failed):command} used today. '
             f'({success} succeeded, {failed} failed)'
         )
         embed.add_field(
@@ -502,64 +418,6 @@ class Stats(commands.Cog):
             value=self.format_user_rows(top_users, empty='No users.'),
             inline=False,
         )
-        await ctx.send(embed=embed)
-
-    @stats.command(name='runtime')
-    async def stats_runtime(self, ctx: Context) -> None:
-        """Shows runtime statistics for the current process."""
-        total_members = 0
-        text_channels = 0
-        voice_channels = 0
-        for guild in self.bot.guilds:
-            total_members += guild.member_count or 0
-            for channel in guild.channels:
-                if isinstance(channel, discord.TextChannel):
-                    text_channels += 1
-                elif isinstance(channel, discord.VoiceChannel):
-                    voice_channels += 1
-
-        memory_usage = self.process.memory_full_info().uss / 1024**2
-        cpu_count = psutil.cpu_count() or 1
-        cpu_usage = self.process.cpu_percent() / cpu_count
-        uptime = time.human_timedelta(
-            self.bot.started_at,
-            accuracy=None,
-            brief=True,
-            suffix=False,
-        )
-
-        embed = discord.Embed(title='Runtime Stats', colour=discord.Colour.blurple())
-        embed.add_field(
-            name='Members',
-            value=f'{total_members} total\n{len(self.bot.users)} unique',
-        )
-        embed.add_field(
-            name='Channels',
-            value=(
-                f'{text_channels + voice_channels} total\n'
-                f'{text_channels} text\n'
-                f'{voice_channels} voice'
-            ),
-        )
-        embed.add_field(
-            name='Process',
-            value=f'{memory_usage:.2f} MiB\n{cpu_usage:.2f}% CPU',
-        )
-        embed.add_field(name='Guilds', value=str(len(self.bot.guilds)))
-        embed.add_field(
-            name='Commands Run', value=str(sum(self.command_stats.values()))
-        )
-        embed.add_field(
-            name='Socket Events', value=str(sum(self.socket_stats.values()))
-        )
-        embed.add_field(name='Uptime', value=uptime)
-        embed.set_footer(
-            text=(
-                f'Python {platform.python_version()} | '
-                f'discord.py {version("discord.py")}'
-            )
-        )
-        embed.timestamp = discord.utils.utcnow()
         await ctx.send(embed=embed)
 
     @stats.command(name='session')
@@ -614,9 +472,10 @@ class Stats(commands.Cog):
     ) -> None:
         table = formats.TabularData()
         table.set_columns(['Command', 'Used', 'Author', 'Guild', 'Failed'])
+
         rendered_rows = []
         for command_usage in rows:
-            used_at = self.parse_datetime(command_usage.used_at)
+            used_at = CommandUsage.normalize_datetime(command_usage.used_at)
             used = used_at.strftime('%Y-%m-%d %H:%M') if used_at else 'Unknown'
             guild_id = command_usage.guild_id
             guild = 'DM' if guild_id is None else str(guild_id)
@@ -645,13 +504,11 @@ class Stats(commands.Cog):
         criteria: Iterable[ColumnElement[bool]] = (),
     ) -> list[CommandUsage]:
         async with self.bot.db_session_maker() as session:
-            result = await session.execute(
-                select(CommandUsage)
-                .where(*criteria)
-                .order_by(col(CommandUsage.used_at).desc())
-                .limit(self.clamp_limit(limit))
+            return await CommandUsage.history(
+                session,
+                limit=self.clamp_limit(limit),
+                criteria=criteria,
             )
-            return list(result.scalars().all())
 
     @stats.group(name='history', invoke_without_command=True)
     @commands.guild_only()
@@ -691,6 +548,7 @@ class Stats(commands.Cog):
     ) -> None:
         """Shows recent command history for a command in this server."""
         await self.require_history_access(ctx)
+
         days = self.clamp_days(days)
         since = discord.utils.utcnow() - datetime.timedelta(days=days)
         rows = await self.fetch_history(
@@ -705,7 +563,7 @@ class Stats(commands.Cog):
         success = sum(not command_usage.failed for command_usage in rows)
         failed = len(rows) - success
         await ctx.send(
-            f'`{command}` in the last {formats.plural(days):day}: '
+            f'`{command}` in the last {plural(days):day}: '
             f'{success} succeeded, {failed} failed.'
         )
         await self.send_history_table(ctx, rows, title=f'Recent `{command}` Commands')
