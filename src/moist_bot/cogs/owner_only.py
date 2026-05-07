@@ -644,16 +644,12 @@ class OwnerOnly(commands.Cog):
             .add_field(
                 name='Events Waiting',
                 value=f'Total: {len(event_tasks)}\nFuture task: {len(future_tasks)}',
-                inline=False,
-            )
-            .add_field(
-                name='Commands Run',
-                value=str(commands_run),
                 inline=True,
             )
             .add_field(
-                name='Socket Events',
-                value=str(socket_events),
+                name='Session Counters',
+                value=f'Commands run: {commands_run!s}\n'
+                f'Socket events: {socket_events!s}',
                 inline=True,
             )
             .add_field(
