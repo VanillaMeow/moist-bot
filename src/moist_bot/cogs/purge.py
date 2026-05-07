@@ -123,7 +123,9 @@ class Snowflake:
             raise commands.BadArgument(msg) from None
 
 
-class PurgeFlags(commands.FlagConverter):
+class PurgeFlags(
+    commands.FlagConverter, prefix='--', delimiter=' ', case_insensitive=True
+):
     before: Annotated[int | None, Snowflake] = commands.flag(
         description='Search for messages before this message ID',
         default=None,
