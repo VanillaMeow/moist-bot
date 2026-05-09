@@ -1,28 +1,76 @@
 from __future__ import annotations
 
+__all__ = ('setup_logging',)
+
 import logging
 from contextlib import contextmanager
 from logging.handlers import RotatingFileHandler
+from typing import TYPE_CHECKING
 
-import discord
+from colorama import Back, Fore, Style
 
 from moist_bot.constants import LOGS_FOLDER_PATH
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from typing import Any, ClassVar
+
+
+class _ColorFormatter(logging.Formatter):
+    LEVEL_COLORS: ClassVar[list[tuple[int, str]]] = [
+        (logging.DEBUG, Fore.LIGHTBLACK_EX),
+        (logging.INFO, Fore.LIGHTBLUE_EX),
+        (logging.WARNING, Fore.YELLOW),
+        (logging.ERROR, Fore.RED),
+        (logging.CRITICAL, Back.RED),
+    ]
+
+    FORMATS: ClassVar[dict[int, logging.Formatter]] = {
+        level: logging.Formatter(
+            f'{Fore.LIGHTBLACK_EX}%(asctime)s,%(msecs)03d{Style.RESET_ALL} '
+            f'{color}%(levelname)-0s{Style.RESET_ALL} '
+            f'{Fore.MAGENTA}%(name)s{Style.RESET_ALL} '
+            '%(message)s',
+            '%H:%M:%S',
+        )
+        for level, color in LEVEL_COLORS
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        formatter = self.FORMATS.get(record.levelno)
+        if formatter is None:
+            formatter = self.FORMATS[logging.DEBUG]
+
+        # Override the traceback to always print in red
+        if record.exc_info:
+            text = formatter.formatException(record.exc_info)
+            record.exc_text = f'{Fore.RED}{text}{Style.RESET_ALL}'
+
+        output = formatter.format(record)
+
+        # Remove the cache layer
+        record.exc_text = None
+        return output
+
 
 @contextmanager
-def setup_logging():
-    log = logging.getLogger()
+def setup_logging() -> Generator[None, Any]:
+    root_log = logging.getLogger()
 
     try:
-        discord.utils.setup_logging(level=logging.DEBUG)
         # __enter__
+        handler = logging.StreamHandler()
+        handler.setFormatter(_ColorFormatter())
+        root_log.addHandler(handler)
+        root_log.setLevel(logging.DEBUG)
+
         logging.getLogger('discord').setLevel(logging.INFO)
         logging.getLogger('discord.http').setLevel(logging.WARNING)
         logging.getLogger('discord.gateway').setLevel(logging.DEBUG)
         # logging.getLogger('discord.state').addFilter(RemoveNoise())
 
         # Set stream handlers to INFO level
-        for handler in log.handlers:
+        for handler in root_log.handlers:
             if isinstance(handler, logging.StreamHandler):
                 handler.setLevel(logging.INFO)
 
@@ -40,12 +88,12 @@ def setup_logging():
         )
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(logging.Formatter(fmt, dt_fmt, style='{'))
-        log.addHandler(file_handler)
+        root_log.addHandler(file_handler)
 
         yield
     finally:
         # __exit__
-        handlers = log.handlers[:]
+        handlers = root_log.handlers[:]
         for handler in handlers:
             handler.close()
-            log.removeHandler(handler)
+            root_log.removeHandler(handler)
