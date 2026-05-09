@@ -114,20 +114,7 @@ class Stats(commands.Cog):
         self.command_stats[command] += 1
         self.command_types_used[is_app_command] += 1
 
-        if ctx.guild is None:
-            guild_id = None
-            destination = 'Private Message'
-        else:
-            guild_id = ctx.guild.id
-            destination = f'#{ctx.channel} ({ctx.guild})'
-
-        log.info(
-            '%s: %s in %s: %s',
-            ctx.message.created_at,
-            ctx.author,
-            destination,
-            ctx.message.content,
-        )
+        guild_id = None if ctx.guild is None else ctx.guild.id
 
         async with self._batch_lock:
             self._data_batch.append(
