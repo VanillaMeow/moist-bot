@@ -263,7 +263,7 @@ class Stats(commands.Cog):
             value=self.format_user_rows(top_users_today, empty='No command users.'),
             inline=True,
         )
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
 
     async def show_member_stats(
         self, ctx: GuildContext, member: discord.Member
@@ -302,7 +302,7 @@ class Stats(commands.Cog):
             value=self.format_count_rows(top_commands_today, empty='No commands.'),
             inline=False,
         )
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
 
     @commands.group(
         aliases=['statistics'],
@@ -348,7 +348,7 @@ class Stats(commands.Cog):
             value=self.format_user_rows(top_users, empty='No users.'),
             inline=False,
         )
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
 
     @stats.command(name='today')
     @commands.is_owner()
@@ -405,7 +405,7 @@ class Stats(commands.Cog):
             value=self.format_user_rows(top_users, empty='No users.'),
             inline=False,
         )
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
 
     @stats.command(name='session')
     @commands.is_owner()
@@ -431,7 +431,7 @@ class Stats(commands.Cog):
         source.add_rows(rows)
         table = source.render()
 
-        await ctx.send(
+        await ctx.reply(
             f'**{title}**\n'
             f'{total} total commands used '
             f'({slash_commands} slash command uses, {cpm:.2f}/minute)\n'
@@ -477,12 +477,12 @@ class Stats(commands.Cog):
             )
 
         if not rendered_rows:
-            await ctx.send('No results found.')
+            await ctx.reply('No results found.')
             return
 
         table.add_rows(rendered_rows)
         output = f'**{title}**\n```\n{table.render()}\n```'
-        await ctx.send(output)
+        await ctx.reply(output)
 
     async def fetch_history(
         self,
@@ -549,7 +549,7 @@ class Stats(commands.Cog):
 
         success = sum(not command_usage.failed for command_usage in rows)
         failed = len(rows) - success
-        await ctx.send(
+        await ctx.reply(
             f'`{command}` in the last {plural(days):day}: '
             f'{success} succeeded, {failed} failed.'
         )
