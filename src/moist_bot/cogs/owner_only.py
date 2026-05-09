@@ -61,7 +61,7 @@ class OwnerOnly(commands.Cog):
         self.sessions: set[int] = set()
         self.last_ext: str = 'cmds'
 
-    async def cog_check(self, ctx: Context) -> bool:  # type: ignore pylint: disable=invalid-overridden-method
+    async def cog_check(self, ctx: Context) -> bool:  # type: ignore[reportIncompatibleMethodOverride]
         if not await ctx.bot.is_owner(ctx.author):
             raise commands.NotOwner('You do not own this bot.')
         return True
