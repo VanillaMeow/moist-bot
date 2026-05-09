@@ -110,9 +110,12 @@ class MoistBot(commands.Bot):
 
     async def close(self) -> None:
         await super().close()
-        self.executor.shutdown()
-        await self.session.close()
-        await self.db_engine.dispose()
+
+        if self.started_at != DATETIME_NEVER:
+            self.executor.shutdown()
+            await self.session.close()
+            await self.db_engine.dispose()
+
         log.info('Bot closed.')
 
     async def on_ready(self) -> None:
