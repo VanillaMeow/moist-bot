@@ -1,22 +1,23 @@
 from __future__ import annotations
 
 import asyncio
-from logging.config import fileConfig
+from typing import TYPE_CHECKING
 
 from alembic import context
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
 
 from moist_bot import models as models
 from moist_bot.db.engine import DATABASE_URL
+from moist_bot.utils.logger import setup_alembic_logging
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
 
 config = context.config
 config.set_main_option('sqlalchemy.url', DATABASE_URL)
-
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+setup_alembic_logging()
 
 target_metadata = SQLModel.metadata
 
