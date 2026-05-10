@@ -62,9 +62,9 @@ ignore = [
     "RUF029",
     "S404",
     "S602",
-    "TC001",  # False positives with pydantic
-    "TC002",  # False positives with pydantic
-    "TC003",  # False positives with pydantic
+    # "TC001",  # False positives with pydantic
+    # "TC002",  # False positives with pydantic
+    # "TC003",  # False positives with pydantic
     "TD003",
     "FIX002",
     "W293",
