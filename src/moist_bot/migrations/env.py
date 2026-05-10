@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
 
 from moist_bot import models as models
-from moist_bot.db.engine import DATABASE_URL
+from moist_bot.db.engine import DATABASE_URL, configure_sqlite_engine
 from moist_bot.utils.logger import setup_alembic_logging
 
 if TYPE_CHECKING:
@@ -49,6 +49,7 @@ async def run_async_migrations() -> None:
         prefix='sqlalchemy.',
         poolclass=pool.NullPool,
     )
+    configure_sqlite_engine(connectable)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
