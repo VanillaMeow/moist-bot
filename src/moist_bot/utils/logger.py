@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-__all__ = ('setup_logging',)
+__all__ = ('setup_alembic_logging', 'setup_logging')
 
 import logging
 from contextlib import contextmanager
 from logging.handlers import RotatingFileHandler
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from colorama import Back, Fore, Style
 
@@ -51,6 +51,29 @@ class _ColorFormatter(logging.Formatter):
         # Remove the cache layer
         record.exc_text = None
         return output
+
+
+def setup_alembic_logging() -> None:
+    """Configure Alembic console logging with the bot formatter."""
+
+    root_log = logging.getLogger()
+    stream_handler: logging.StreamHandler[Any] | None = None
+
+    for handler in root_log.handlers:
+        if isinstance(handler, logging.StreamHandler):
+            stream_handler = cast('logging.StreamHandler[Any]', handler)
+            break
+
+    if stream_handler is None:
+        stream_handler = logging.StreamHandler()
+        root_log.addHandler(stream_handler)
+
+    stream_handler.setFormatter(_ColorFormatter())
+    stream_handler.setLevel(logging.INFO)
+
+    root_log.setLevel(logging.WARNING)
+    logging.getLogger('alembic').setLevel(logging.INFO)
+    logging.getLogger('sqlalchemy').setLevel(logging.WARNING)
 
 
 @contextmanager

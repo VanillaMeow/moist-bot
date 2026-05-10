@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 
-from .bot import MoistBot
-from .utils.setup_logging import setup_logging
+from moist_bot.bot import MoistBot
+from moist_bot.utils.logger import setup_logging
 
 
 async def run_bot() -> None:
