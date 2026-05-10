@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from alembic import op
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 
 revision: str = '20260506_0001'
 down_revision: str | None = None

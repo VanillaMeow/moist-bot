@@ -1,17 +1,21 @@
 from .command_usage import (
+    CommandStatsScope,
     CommandUsage,
-    CountAndFirst,
-    FailedCount,
-    GuildCount,
-    LabelCount,
-    UserCount,
+    CommandUsageCommandCount,
+    CommandUsageFailureCount,
+    CommandUsageGuildCount,
+    CommandUsageStats,
+    CommandUsageSummary,
+    CommandUsageUserCount,
 )
 
 __all__ = (
+    'CommandStatsScope',
     'CommandUsage',
-    'CountAndFirst',
-    'FailedCount',
-    'GuildCount',
-    'LabelCount',
-    'UserCount',
+    'CommandUsageCommandCount',
+    'CommandUsageFailureCount',
+    'CommandUsageGuildCount',
+    'CommandUsageStats',
+    'CommandUsageSummary',
+    'CommandUsageUserCount',
 )
