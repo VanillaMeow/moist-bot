@@ -15,7 +15,7 @@ from moist_bot.utils.paginator import RoboPages
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
-    from moist_bot.utils.context import Context, GuildContext
+    from moist_bot.utils.context import Context
 
 
 """
