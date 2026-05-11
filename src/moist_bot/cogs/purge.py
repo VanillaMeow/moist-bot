@@ -6,7 +6,6 @@ import datetime
 import logging
 import operator
 import re
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Annotated
 
 import discord
@@ -16,6 +15,8 @@ from discord.ext import commands
 from moist_bot.utils.formats import plural
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from moist_bot.bot import MoistBot
     from moist_bot.utils.context import Context, GuildContext
 
