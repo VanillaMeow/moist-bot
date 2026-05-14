@@ -215,23 +215,24 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+
 ### Project specific
 *.log*
-**/*/config.py
 _dev/
 
 # DB
 *.db*
 
 # Cogs
-*/cogs/cdt.py
-*/cogs/legacy_cogs/
+src/*/cogs/cdt.py
+src/*/cogs/legacy_cogs/
+src/*/cogs/test*.py
 
 # Junk
 */assets/test.png
 
 # AI junk
-AGENTS.MD
+AGENTS.md
 GEMINI.md
 CLAUDE.md
 .claude/
