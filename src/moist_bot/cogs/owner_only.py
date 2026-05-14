@@ -26,8 +26,8 @@ import psutil
 from discord.ext import commands
 from jishaku.modules import package_version
 
-from moist_bot.config import TEST_GUILD
 from moist_bot.constants import COGS_FOLDER_PATH, ROOT_PACKAGE
+from moist_bot.settings import settings
 from moist_bot.utils.converters import get_media_from_ctx
 
 if TYPE_CHECKING:
@@ -148,14 +148,14 @@ class OwnerOnly(commands.Cog):
 
     @debug.command(name='copyglobal')
     async def copy_global_to_test_guild(self, ctx: Context, resync: bool | None = True):
-        self.client.tree.copy_global_to(guild=TEST_GUILD)
+        self.client.tree.copy_global_to(guild=settings.test_guild)
         await ctx.reply(
             ':white_check_mark: Copied global app commands to **test guild**'
         )
 
         if resync:
             try:
-                await self.client.tree.sync(guild=TEST_GUILD)
+                await self.client.tree.sync(guild=settings.test_guild)
             except discord.DiscordException:
                 log.exception('Unable to sync application commands.')
                 await ctx.reply(':anger: Unable to sync application commands.')
@@ -195,7 +195,7 @@ class OwnerOnly(commands.Cog):
             guild = None
             target_fmt = 'global guilds'
         elif target == 'guild':
-            guild = TEST_GUILD
+            guild = settings.test_guild
             target_fmt = 'current guild'
 
         try:
@@ -221,7 +221,7 @@ class OwnerOnly(commands.Cog):
             guild = None
             target_fmt = 'global guilds'
         elif target == 'guild':
-            guild = TEST_GUILD
+            guild = settings.test_guild
             target_fmt = 'current guild'
 
         cmds = await self.client.tree.fetch_commands(guild=guild)

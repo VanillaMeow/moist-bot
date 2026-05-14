@@ -11,13 +11,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from moist_bot.constants import DB_PATH
+from moist_bot.settings import settings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-
-
-DATABASE_URL = f'sqlite+aiosqlite:///{DB_PATH}'
 
 
 def _configure_sqlite_connection(
@@ -38,7 +35,7 @@ def configure_sqlite_engine(engine: AsyncEngine) -> None:
 
 
 def create_engine() -> AsyncEngine:
-    engine = create_async_engine(DATABASE_URL)
+    engine = create_async_engine(settings.database_url)
     configure_sqlite_engine(engine)
     return engine
 

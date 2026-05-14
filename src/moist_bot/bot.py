@@ -3,22 +3,23 @@ from __future__ import annotations
 import asyncio
 import logging
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import discord
 import discord.utils
 from discord.ext import commands
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from .config import TOKEN
 from .constants import COGS_FOLDER_PATH, DATETIME_NEVER, ROOT_PACKAGE
 from .db import create_engine, create_session_maker
+from .settings import settings
 from .utils.context import Context
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from discord import Interaction, Message
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 
 log = logging.getLogger('discord.' + __name__)
@@ -105,7 +106,9 @@ class MoistBot(commands.Bot):
 
         await self.invoke(ctx)
 
-    async def start(self, token: str = TOKEN, *, reconnect: bool = True) -> None:
+    async def start(
+        self, token: str = settings.token, *, reconnect: bool = True
+    ) -> None:
         await super().start(token=token, reconnect=reconnect)
 
     async def close(self) -> None:

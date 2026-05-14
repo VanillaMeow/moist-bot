@@ -9,14 +9,15 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
 
 from moist_bot import models as models
-from moist_bot.db.engine import DATABASE_URL, configure_sqlite_engine
+from moist_bot.db.engine import configure_sqlite_engine
+from moist_bot.settings import settings
 from moist_bot.utils.logger import setup_alembic_logging
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
 
 config = context.config
-config.set_main_option('sqlalchemy.url', DATABASE_URL)
+config.set_main_option('sqlalchemy.url', settings.database_url)
 setup_alembic_logging()
 
 target_metadata = SQLModel.metadata
