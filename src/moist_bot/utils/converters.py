@@ -21,6 +21,7 @@ def remove_decimal(number: float, ndigits: int = 2) -> N: ...
 
 
 def remove_decimal(number: N, ndigits: int = 2) -> N:
+    """Round and remove insignificant decimal places from a number."""
     if isinstance(number, int):
         return number
     if number.is_integer():

@@ -3,10 +3,13 @@ from __future__ import annotations
 from collections import defaultdict
 from itertools import chain
 from random import randrange
-from typing import ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from PIL import Image as _Image
-from PIL.Image import Image
+
+if TYPE_CHECKING:
+    from PIL.Image import Image
+
 
 EMPTY_IMAGE = _Image.new(mode='RGBA', size=(0, 0))
 
