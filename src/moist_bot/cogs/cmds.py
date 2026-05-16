@@ -16,7 +16,7 @@ class Cmds(commands.Cog):
         self.client: MoistBot = client
 
     @commands.command()
-    @commands.cooldown(rate=1, per=3, type=commands.BucketType.user)
+    @commands.cooldown(rate=1, per=3, type=commands.BucketType.member)
     async def ping_ws(self, ctx: Context):
         """Discord websocket protocol latency."""
         await ctx.reply(
@@ -24,7 +24,7 @@ class Cmds(commands.Cog):
         )
 
     @commands.command()
-    @commands.cooldown(rate=1, per=3, type=commands.BucketType.user)
+    @commands.cooldown(rate=1, per=3, type=commands.BucketType.member)
     async def ping(
         self, ctx: Context, *, msg: Annotated[str, escape_mentions] = 'Pong!'
     ):

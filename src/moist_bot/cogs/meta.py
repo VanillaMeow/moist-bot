@@ -413,7 +413,7 @@ class Meta(commands.Cog):
         await self.say_permissions(ctx, member, channel)
 
     @commands.command(hidden=True)
-    @commands.cooldown(1, 30.0, type=commands.BucketType.user)
+    @commands.cooldown(1, 30.0, type=commands.BucketType.member)
     async def cud(self, ctx: Context):
         """pls no spam"""
 

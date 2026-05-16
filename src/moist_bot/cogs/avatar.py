@@ -35,7 +35,7 @@ class Avatar(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\U0001f465')
 
-    @commands.cooldown(rate=1, per=2, type=commands.BucketType.user)
+    @commands.cooldown(rate=1, per=2, type=commands.BucketType.member)
     @commands.command()
     async def avatar(self, ctx: Context, *, user: discord.Member = commands.Author):
         """Display a user's avatar."""

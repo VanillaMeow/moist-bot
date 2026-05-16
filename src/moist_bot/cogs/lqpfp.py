@@ -53,7 +53,7 @@ class LowQualityProfilePicture(commands.Cog):
         buffer.seek(0)
         return buffer
 
-    @commands.cooldown(rate=1, per=2, type=commands.BucketType.user)
+    @commands.cooldown(rate=1, per=2, type=commands.BucketType.member)
     @commands.command()
     async def lqpfp(
         self, ctx: Context, user: discord.User = commands.Author, factor: float = 1

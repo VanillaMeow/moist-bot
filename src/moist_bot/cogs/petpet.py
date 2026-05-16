@@ -153,7 +153,7 @@ class PetPet(commands.Cog):
     def _get_buffer(img_buffer: BytesIO) -> BytesIO:
         return PetPetCreator(img_buffer).create_gif()
 
-    @commands.cooldown(rate=1, per=4, type=commands.BucketType.user)
+    @commands.cooldown(rate=1, per=4, type=commands.BucketType.member)
     @app_commands.describe(user='The target user.')
     @commands.hybrid_command(name='petpet', description='Petpet')
     async def petpet(self, ctx: Context, user: discord.User = commands.Author):

@@ -521,7 +521,7 @@ class SnakeGame(commands.Cog):
         self.client: MoistBot = client
 
     @commands.hybrid_command(fallback='start')
-    @commands.cooldown(rate=1, per=10, type=commands.BucketType.user)
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.member)
     @app_commands.choices(
         size=[
             app_commands.Choice(name='5x5', value=5),
