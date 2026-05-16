@@ -79,6 +79,8 @@ def format_history_table(
     include_guild: bool,
 ) -> str:
     table = formats.TabularData()
+
+    # Set the columns
     columns = ['#', 'Used', 'State', 'Mode']
     if include_author:
         columns.append('Author')
@@ -92,16 +94,19 @@ def format_history_table(
         used_at = CommandUsage.normalize_datetime(command_usage.used_at)
         used = used_at.strftime('%Y-%m-%d %H:%M') if used_at else 'Unknown'
         guild_id = command_usage.guild_id
+
         row = [
             str(index),
             used,
             'fail' if command_usage.failed else 'ok',
             'slash' if command_usage.app_command else 'text',
         ]
+
         if include_author:
             row.append(str(command_usage.author_id))
         if include_guild:
             row.append('DM' if guild_id is None else str(guild_id))
+
         row.append(shorten(command_usage.command, HISTORY_COMMAND_WIDTH))
         rendered_rows.append(row)
 
