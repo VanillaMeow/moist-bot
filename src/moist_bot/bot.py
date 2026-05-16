@@ -65,7 +65,7 @@ class MoistBot(commands.Bot):
         )
 
         self.started_at: datetime = DATETIME_NEVER
-        self.cooldowns: dict[int, datetime] = {}
+        self.cooldowns: dict[tuple[int, str], datetime] = {}
         self.synced: bool = True
         self.db_engine = create_engine()
         self.db_session_maker = create_session_maker(self.db_engine)
@@ -92,6 +92,21 @@ class MoistBot(commands.Bot):
         self, origin: Message | Interaction, /, *, cls: type[Context] = Context
     ) -> Context:
         return await super().get_context(origin, cls=cls)
+
+    async def can_run(
+        self, ctx: commands.Context[Any], /, *, call_once: bool = False
+    ) -> bool:
+
+        # No cooldown for bot owners
+        command = ctx.command
+        if (
+            not call_once
+            and command is not None
+            and await self.is_owner(ctx.author)
+        ):
+            command.reset_cooldown(ctx)
+
+        return await super().can_run(ctx, call_once=call_once)
 
     async def process_commands(self, message: Message, /) -> None:
         if message.author.bot:

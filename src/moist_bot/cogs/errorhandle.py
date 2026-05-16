@@ -67,16 +67,18 @@ class ErrorHandler(commands.Cog):
 
         if isinstance(error, commands.CommandOnCooldown):
             utcnow = discord.utils.utcnow()
+            command_name = ctx.command.qualified_name
+            cooldown_key = (ctx.author.id, command_name)
 
             # Check if an existing cooldown has expired
-            author_cooldown = ctx.bot.cooldowns.get(ctx.author.id)
+            author_cooldown = ctx.bot.cooldowns.get(cooldown_key)
             if author_cooldown is not None and utcnow < author_cooldown:
                 return None
 
             # Set a new cooldown
             seconds = error.retry_after
             tm_in = utcnow + timedelta(seconds=seconds)
-            ctx.bot.cooldowns[ctx.author.id] = tm_in
+            ctx.bot.cooldowns[cooldown_key] = tm_in
 
             tm_fmt = discord.utils.format_dt(tm_in, 'R')
             return await ctx.reply(
