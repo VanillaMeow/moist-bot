@@ -520,6 +520,10 @@ class SnakeGame(commands.Cog):
     def __init__(self, client: MoistBot):
         self.client: MoistBot = client
 
+    @property
+    def display_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name='\N{SNAKE}')
+
     @commands.hybrid_command(fallback='start')
     @commands.cooldown(rate=1, per=10, type=commands.BucketType.member)
     @app_commands.choices(

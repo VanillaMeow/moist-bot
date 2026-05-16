@@ -32,6 +32,10 @@ class ErrorHandler(commands.Cog):
     def __init__(self, client: MoistBot):
         self.client: MoistBot = client
 
+    @property
+    def display_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name='\N{WARNING SIGN}')
+
     @commands.Cog.listener()
     async def on_command_error(self, ctx: Context, error: commands.CommandError):
         """The event triggered when an error is raised while invoking a command."""

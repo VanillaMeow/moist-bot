@@ -149,6 +149,10 @@ class PetPet(commands.Cog):
         self.client: MoistBot = client
         self.execute = self.client.loop.run_in_executor
 
+    @property
+    def display_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name='\N{WAVING HAND SIGN}')
+
     @staticmethod
     def _get_buffer(img_buffer: BytesIO) -> BytesIO:
         return PetPetCreator(img_buffer).create_gif()

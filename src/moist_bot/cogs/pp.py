@@ -23,6 +23,10 @@ class Pp(commands.Cog):
             1022178996827455498,
         ]
 
+    @property
+    def display_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name='\N{AUBERGINE}')
+
     @commands.command()
     async def pp(self, ctx: Context, *, user: discord.User = commands.Author):
         """Measure your pp."""

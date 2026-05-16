@@ -28,6 +28,10 @@ class Mp3(commands.Cog):
         self.client: MoistBot = client
         self.execute = self.client.loop.run_in_executor
 
+    @property
+    def display_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name='\N{MUSICAL NOTE}')
+
     @staticmethod
     def _get_buffer(url: str) -> tuple[io.BytesIO, str]:
         # Get audio stream

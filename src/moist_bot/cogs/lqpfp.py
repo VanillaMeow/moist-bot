@@ -35,6 +35,10 @@ class LowQualityProfilePicture(commands.Cog):
         self.executor = ProcessPoolExecutor()
         self.execute = self.client.loop.run_in_executor
 
+    @property
+    def display_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name='\N{FRAME WITH PICTURE}')
+
     async def cog_unload(self) -> None:
         self.executor.shutdown(wait=False)
 

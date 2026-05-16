@@ -5,6 +5,7 @@ from __future__ import annotations
 from random import choice, randint
 from typing import TYPE_CHECKING, ClassVar
 
+import discord
 import pyperclip
 from discord.ext import commands
 
@@ -41,6 +42,10 @@ class Meow(commands.Cog):
 
     def __init__(self, client: MoistBot):
         self.client: MoistBot = client
+
+    @property
+    def display_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name='\N{CAT FACE}')
 
     @commands.command()
     @commands.cooldown(rate=1, per=1, type=commands.BucketType.member)

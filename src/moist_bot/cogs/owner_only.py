@@ -61,6 +61,10 @@ class OwnerOnly(commands.Cog):
         self.sessions: set[int] = set()
         self.last_ext: str = 'cmds'
 
+    @property
+    def display_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name='\N{HAMMER AND WRENCH}')
+
     async def cog_check(self, ctx: Context) -> bool:  # type: ignore[reportIncompatibleMethodOverride]
         if not await ctx.bot.is_owner(ctx.author):
             raise commands.NotOwner('You do not own this bot.')

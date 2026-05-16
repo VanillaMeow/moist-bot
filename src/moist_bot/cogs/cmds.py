@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Annotated
 
+import discord
 from discord.ext import commands
 from discord.utils import escape_mentions
 
@@ -14,6 +15,10 @@ if TYPE_CHECKING:
 class Cmds(commands.Cog):
     def __init__(self, client: MoistBot):
         self.client: MoistBot = client
+
+    @property
+    def display_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name='\N{SPEECH BALLOON}')
 
     @commands.command()
     @commands.cooldown(rate=1, per=3, type=commands.BucketType.member)
