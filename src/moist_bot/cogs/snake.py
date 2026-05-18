@@ -4,6 +4,7 @@ import logging
 import time
 from contextlib import contextmanager
 from datetime import timedelta
+from enum import StrEnum
 from functools import wraps
 from inspect import cleandoc
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypedDict, cast
@@ -31,24 +32,27 @@ GAME_INTERACTION_LOG = cleandoc(
 Interaction \x1b[44mtimings\x1b[0m for \x1b[36;1m%s\x1b[0m \x1b[90m(%s)\x1b[0m,
 in guild \x1b[36;1m%s\x1b[0m \x1b[90m(%s)\x1b[0m:
 Interaction start
-|    ->Event loop start
-|    | |
-|    | Event loop took %sms
-|    |
-|    | Render cycle start
-|    | |
-|    | Render cycle took %sms
-|    --> Frame latency %sms, %s fps (in theory)
 |
-|    ->Await discord gateway api call
+|    Frame start
+|    |   Event loop took %sms
+|    |   Render cycle took %sms
+|    Frame latency %sms, %s fps (in theory)
+|
+|    Await discord gateway api call
 |    |
-|    -->Discord gateway response in %sms
+|    Discord gateway response in %sms
 |
 Full interaction (including overheads) took %sms
 """
 )
 
-LABELS = {'up': 'Up', 'left': 'Left', 'down': 'Down', 'right': 'Right', 'quit': 'Quit'}
+
+class SnakeButtonLabel(StrEnum):
+    UP = 'Up'
+    LEFT = 'Left'
+    DOWN = 'Down'
+    RIGHT = 'Right'
+    QUIT = 'Quit'
 
 
 def perf_timer[**P](
@@ -121,6 +125,9 @@ class SnakeGameContainer:
         'field',
         'field_area',
         'field_dim',
+        'free_cell_count',
+        'free_cell_indexes',
+        'free_cells',
         'game_score',
         'perf_move_snake_begin',
         'perf_move_snake_end',
@@ -150,7 +157,7 @@ class SnakeGameContainer:
 
         # Initial game state
         self.field_dim = np.array((size_x, size_y), dtype='uint8')
-        self.field_area: int = self.field_dim.prod()
+        self.field_area: int = int(self.field_dim.prod())
 
         self.empty_field = np.full(self.field_dim, self.assets['empty'], dtype='str_')
         self.field = self.empty_field.copy()
@@ -178,6 +185,13 @@ class SnakeGameContainer:
             (abs(self.snake_head[0] - 3), self.snake_head[1]), dtype='uint8'
         )
 
+        self.free_cells = np.arange(self.field_area, dtype='uint32')
+        self.free_cell_indexes = np.arange(self.field_area, dtype='int32')
+        self.free_cell_count: int = self.field_area
+        self._remove_free_cell(self._cell_index(self.snake_head))
+        for cell in self.snake_body[: self.snake_body_len]:
+            self._remove_free_cell(self._cell_index(cell))
+
         # Game info
         self.ate_apple: bool = False
         self.game_score: int = 0
@@ -190,39 +204,66 @@ class SnakeGameContainer:
         self.perf_render_begin: int = 0
         self.perf_render_end: int = 0
 
-    def _respawn_apple(self):
-        """Respawn apple
-        note this is highly inefficient and flawed (oh well... uwu)
-        """
+    def _cell_index(self, cell: np.ndarray) -> int:
+        """Return the flat board index for an `(x, y)` cell."""
+        x, y = cell
+        return (int(y) * int(self.field_dim[0])) + int(x)
 
-        rand_idx = self.rng.integers(0, self.field_area, dtype='uint8')
-        i = self.field_dim[1]
-        x = rand_idx % i
-        y = rand_idx // i
-        self.apple[:] = (x, y)
+    def _cell_is_in_bounds(self, cell: np.ndarray) -> bool:
+        """Return whether an `(x, y)` cell is inside the board."""
+        x, y = cell
+        return 0 <= x < self.field_dim[0] and 0 <= y < self.field_dim[1]
 
-        if np.any(
-            np.all(self.apple == self.snake_body[: self.snake_body_len], axis=1)
-        ) or np.array_equal(self.apple, self.snake_head):
-            self._respawn_apple()
+    def _remove_free_cell(self, cell_index: int) -> None:
+        """Remove a cell from apple spawn candidates."""
+        free_cell_index = int(self.free_cell_indexes[cell_index])
+        if free_cell_index == -1:
+            return
+
+        last_cell_index = int(self.free_cells[self.free_cell_count - 1])
+        self.free_cells[free_cell_index] = last_cell_index
+        self.free_cell_indexes[last_cell_index] = free_cell_index
+        self.free_cell_indexes[cell_index] = -1
+        self.free_cell_count -= 1
+
+    def _add_free_cell(self, cell_index: int) -> None:
+        """Add a cell back to apple spawn candidates."""
+        if self.free_cell_indexes[cell_index] != -1:
+            return
+
+        self.free_cells[self.free_cell_count] = cell_index
+        self.free_cell_indexes[cell_index] = self.free_cell_count
+        self.free_cell_count += 1
+
+    def _respawn_apple(self) -> None:
+        """Respawn apple on a random unoccupied cell."""
+        free_cell_index = int(self.rng.integers(self.free_cell_count))
+        cell_index = int(self.free_cells[free_cell_index])
+        width = int(self.field_dim[0])
+        self.apple[:] = (cell_index % width, cell_index // width)
 
     def _move_snake(self, x: int, y: int) -> None:
         """Increment `self.snake_head` by `x` or `y`"""
+        old_tail = self.snake_body[self.snake_body_len - 1].copy()
 
         self.snake_body = np.roll(self.snake_body, 1, axis=0)
-        self.snake_body.put((0, 1), self.snake_head)
+        self.snake_body[0] = self.snake_head
 
         self.snake_head[:] += np.array((x, y), dtype='int8')
+        self.ate_apple = np.array_equal(self.snake_head, self.apple)
 
         # If the snake is about to eat an apple
-        if np.array_equal(self.snake_head, self.apple):
-            self.ate_apple = True
+        if self.ate_apple:
             self.snake_body_len += 1  # I hate how this has to be here
             self.game_score += 1
         else:
             # If the snake didn't eat an apple
             # remove the last snake body
+            self._add_free_cell(self._cell_index(old_tail))
             self.snake_body[self.snake_body_len + 1] = self.empty_body
+
+        if self._cell_is_in_bounds(self.snake_head):
+            self._remove_free_cell(self._cell_index(self.snake_head))
 
     @perf_timer('perf_move_snake_begin', 'perf_move_snake_end')
     def move_snake(self, x: int = 0, y: int = 0) -> None:
@@ -238,8 +279,13 @@ class SnakeGameContainer:
 
         # Respawn apple
         if self.ate_apple:
-            self.ate_apple = False
+            # Win condition
+            if self.free_cell_count == 0:
+                self.game_win()
+                return
+
             self._respawn_apple()
+            self.ate_apple = False
 
         # Game over conditions
         if (
@@ -397,16 +443,16 @@ class SnakeGameView(discord.ui.View):
                 self.ctx.author.id,
             )
 
-    def _set_opposite_button(self, label: str) -> None:
+    def _set_opposite_button(self, label: SnakeButtonLabel) -> None:
         """Finds and sets the `discord.ui.Button` object
         that has the specified label from a str
         """
         for item in self.children:
-            if isinstance(item, discord.ui.Button) and item.label == LABELS[label]:
+            if isinstance(item, discord.ui.Button) and item.label == label:
                 self.opposite_button = item
                 break
 
-    @discord.ui.button(label=LABELS['quit'], style=discord.ButtonStyle.red, row=0)
+    @discord.ui.button(label=SnakeButtonLabel.QUIT, style=discord.ButtonStyle.red, row=0)
     async def quit(
         self, interaction: discord.Interaction, button: discord.ui.Button[SnakeGameView]
     ):
@@ -423,13 +469,13 @@ class SnakeGameView(discord.ui.View):
         self.game_instance.alive = False
         await self._on_game_over(':x: You quit!')
 
-    @discord.ui.button(label=LABELS['up'], style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label=SnakeButtonLabel.UP, style=discord.ButtonStyle.primary, row=0)
     async def up(
         self,
         interaction: discord.Interaction,
         _button: discord.ui.Button[SnakeGameView],
     ):
-        self._set_opposite_button('down')
+        self._set_opposite_button(SnakeButtonLabel.DOWN)
         await self.on_button_interaction(interaction, y=-1)
 
     @discord.ui.button(
@@ -440,31 +486,31 @@ class SnakeGameView(discord.ui.View):
     ):
         pass
 
-    @discord.ui.button(label=LABELS['left'], style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label=SnakeButtonLabel.LEFT, style=discord.ButtonStyle.primary, row=1)
     async def left(
         self,
         interaction: discord.Interaction,
         _button: discord.ui.Button[SnakeGameView],
     ):
-        self._set_opposite_button('right')
+        self._set_opposite_button(SnakeButtonLabel.RIGHT)
         await self.on_button_interaction(interaction, x=-1)
 
-    @discord.ui.button(label=LABELS['down'], style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label=SnakeButtonLabel.DOWN, style=discord.ButtonStyle.primary, row=1)
     async def down(
         self,
         interaction: discord.Interaction,
         _button: discord.ui.Button[SnakeGameView],
     ):
-        self._set_opposite_button('up')
+        self._set_opposite_button(SnakeButtonLabel.UP)
         await self.on_button_interaction(interaction, y=1)
 
-    @discord.ui.button(label=LABELS['right'], style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label=SnakeButtonLabel.RIGHT, style=discord.ButtonStyle.primary, row=1)
     async def right(
         self,
         interaction: discord.Interaction,
         _button: discord.ui.Button[SnakeGameView],
     ):
-        self._set_opposite_button('left')
+        self._set_opposite_button(SnakeButtonLabel.LEFT)
         await self.on_button_interaction(interaction, x=1)
 
     async def on_button_interaction(
