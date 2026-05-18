@@ -67,7 +67,7 @@ class ErrorHandler(commands.Cog):
 
         if isinstance(error, commands.CommandOnCooldown):
             utcnow = discord.utils.utcnow()
-            command_name = ctx.command.qualified_name
+            command_name = ctx.command.qualified_name if ctx.command else 'how'
             cooldown_key = (ctx.author.id, command_name)
 
             # Check if an existing cooldown has expired
