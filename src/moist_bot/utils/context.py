@@ -58,7 +58,6 @@ class ConfirmationView(discord.ui.View):
 
 class Context(commands.Context[MoistBot]):
     prefix: str
-    command: commands.Command[Any, ..., Any]
     bot: MoistBot
 
     def __init__(self, **kwargs: Any):

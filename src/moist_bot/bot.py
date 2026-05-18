@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import discord
@@ -106,13 +106,10 @@ class MoistBot(commands.Bot):
 
         # Services
         self.blocklist = BlocklistManager(self)
-        self.spam_control = cast(
-            'commands.CooldownMapping[Message]',
-            commands.CooldownMapping.from_cooldown(  # type: ignore[reportUnknownMemberType]
-                10,
-                12.0,
-                commands.BucketType.user,
-            ),
+        self.spam_control = commands.CooldownMapping['Message'].from_cooldown(
+            10,
+            12.0,
+            commands.BucketType.user,
         )
         self._auto_spam_count: Counter[int] = Counter()
 
@@ -132,16 +129,20 @@ class MoistBot(commands.Bot):
     async def setup_hook(self) -> None:
         self.executor = ProcessPoolExecutor(max_workers=4)
         self.session = aiohttp.ClientSession()
-        await self.blocklist.load()
-        await asyncio.create_task(self.load_cogs())
+
+        tasks = [
+            asyncio.create_task(self.load_cogs()),
+            asyncio.create_task(self.blocklist.load()),
+        ]
+        await asyncio.gather(*tasks)
 
     async def get_context(  # type: ignore[reportIncompatibleMethodOverride]
         self, origin: Message | Interaction, /, *, cls: type[Context] = Context
     ) -> Context:
         return await super().get_context(origin, cls=cls)
 
-    async def can_run(
-        self, ctx: commands.Context[Any], /, *, call_once: bool = False
+    async def can_run(  # type: ignore[reportIncompatibleMethodOverride]
+        self, ctx: Context, /, *, call_once: bool = False
     ) -> bool:
 
         # No cooldown for bot owners
@@ -158,7 +159,7 @@ class MoistBot(commands.Bot):
             return
 
         ctx: Context = await self.get_context(message)
-        if ctx.command is None:  # type: ignore[]
+        if ctx.command is None:
             return
 
         log.debug(
@@ -172,12 +173,12 @@ class MoistBot(commands.Bot):
             if decision is not None:
                 return
 
-            if await self._is_spamming(ctx):
+            if await self._handle_spamming(ctx):
                 return
 
         await self.invoke(ctx)
 
-    async def _is_spamming(self, ctx: Context) -> bool:
+    async def _handle_spamming(self, ctx: Context) -> bool:
         """Return whether this command attempt trips auto-blocklist spam control."""
 
         current = ctx.message.created_at.timestamp()
