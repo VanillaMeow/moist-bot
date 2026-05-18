@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 
 from moist_bot.bot import MoistBot
 from moist_bot.utils.logger import setup_logging
+
+# uvloop is Posix only
+try:
+    import uvloop
+except ImportError:
+    async_driver = asyncio
+else:
+    async_driver = uvloop
 
 
 async def run_bot() -> None:
@@ -13,12 +20,15 @@ async def run_bot() -> None:
 
 
 async def _main() -> None:
-    await run_bot()
+    with setup_logging():
+        try:
+            await run_bot()
+        except KeyboardInterrupt, asyncio.CancelledError:
+            pass
 
 
 def main() -> None:
-    with setup_logging(), suppress(KeyboardInterrupt, asyncio.CancelledError):
-        asyncio.run(_main())
+    async_driver.run(_main())
 
 
 if __name__ == '__main__':

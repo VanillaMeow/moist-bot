@@ -35,6 +35,7 @@ dependencies = [
     "requests>=2.32.4",
     "sqlalchemy>=2.0.49",
     "sqlmodel>=0.0.38",
+    "uvloop>=0.22.1 ; os_name == 'posix'",
 ]
 
 [tool.uv.sources]
