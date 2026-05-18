@@ -1,3 +1,12 @@
+from .blocklist import (
+    BLOCKLIST_SENTINEL_ID,
+    BlocklistEntry,
+    BlocklistScope,
+    BlocklistSource,
+    ChannelPolicyMode,
+    GuildChannelPolicy,
+    GuildChannelPolicyChannel,
+)
 from .command_usage import (
     CommandStatsScope,
     CommandUsage,
@@ -10,6 +19,11 @@ from .command_usage import (
 )
 
 __all__ = (
+    'BLOCKLIST_SENTINEL_ID',
+    'BlocklistEntry',
+    'BlocklistScope',
+    'BlocklistSource',
+    'ChannelPolicyMode',
     'CommandStatsScope',
     'CommandUsage',
     'CommandUsageCommandCount',
@@ -18,4 +32,6 @@ __all__ = (
     'CommandUsageStats',
     'CommandUsageSummary',
     'CommandUsageUserCount',
+    'GuildChannelPolicy',
+    'GuildChannelPolicyChannel',
 )

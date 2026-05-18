@@ -8,9 +8,8 @@ from moist_bot.utils.logger import setup_logging
 
 
 async def run_bot() -> None:
-    with setup_logging(), suppress(KeyboardInterrupt, asyncio.CancelledError):
-        async with MoistBot() as client:
-            await client.start()
+    async with MoistBot() as client:
+        await client.start()
 
 
 async def _main() -> None:
@@ -18,7 +17,8 @@ async def _main() -> None:
 
 
 def main() -> None:
-    asyncio.run(_main())
+    with setup_logging(), suppress(KeyboardInterrupt, asyncio.CancelledError):
+        asyncio.run(_main())
 
 
 if __name__ == '__main__':
