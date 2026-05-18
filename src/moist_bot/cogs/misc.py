@@ -12,7 +12,9 @@ if TYPE_CHECKING:
     from moist_bot.utils.context import Context
 
 
-class Cmds(commands.Cog):
+class Miscellaneous(commands.Cog):
+    """Miscellaneous commands."""
+
     def __init__(self, client: MoistBot):
         self.client: MoistBot = client
 
@@ -68,4 +70,4 @@ class Cmds(commands.Cog):
 
 
 async def setup(client: MoistBot) -> None:
-    await client.add_cog(Cmds(client))
+    await client.add_cog(Miscellaneous(client))
