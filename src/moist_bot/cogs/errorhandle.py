@@ -29,8 +29,8 @@ log = logging.getLogger('discord.' + __name__)
 
 
 class ErrorHandler(commands.Cog):
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -154,8 +154,8 @@ class ErrorHandler(commands.Cog):
             )
 
 
-async def setup(client: MoistBot) -> None:
-    await client.add_cog(ErrorHandler(client))
+async def setup(bot: MoistBot) -> None:
+    await bot.add_cog(ErrorHandler(bot))
 
 
 # Modified from https://gist.github.com/EvieePy/7822af90858ef65012ea500bcecf1612

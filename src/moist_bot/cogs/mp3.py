@@ -24,9 +24,9 @@ class FileTooBig(commands.CommandError):
 
 
 class Mp3(commands.Cog):
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
-        self.execute = self.client.loop.run_in_executor
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
+        self.execute = self.bot.loop.run_in_executor
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -88,5 +88,5 @@ class Mp3(commands.Cog):
                 return
 
 
-async def setup(client: MoistBot) -> None:
-    await client.add_cog(Mp3(client))
+async def setup(bot: MoistBot) -> None:
+    await bot.add_cog(Mp3(bot))

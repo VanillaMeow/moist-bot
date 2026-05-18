@@ -54,8 +54,8 @@ class StickerFlags(commands.FlagConverter, prefix='--', delimiter=' ', case_inse
 class OwnerOnly(commands.Cog):
     """Debug commands that only the bot owner can use"""
 
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
         self._last_result: Any = None
         self.process = psutil.Process()
         self.sessions: set[int] = set()
@@ -96,7 +96,7 @@ class OwnerOnly(commands.Cog):
             ext = self.last_ext
 
         try:
-            await self.client.reload_extension(f'.{cogs}.{ext}', package=ROOT_PACKAGE)
+            await self.bot.reload_extension(f'.{cogs}.{ext}', package=ROOT_PACKAGE)
 
         except commands.ExtensionNotLoaded, commands.ExtensionNotFound:
             return await ctx.reply(":anger: specified cog name doesn't exits bozo")
@@ -116,7 +116,7 @@ class OwnerOnly(commands.Cog):
         """Load a cog."""
 
         try:
-            await self.client.load_extension(f'.{cogs}.{ext}', package=ROOT_PACKAGE)
+            await self.bot.load_extension(f'.{cogs}.{ext}', package=ROOT_PACKAGE)
 
         except commands.ExtensionAlreadyLoaded, commands.ExtensionNotFound:
             await ctx.reply(
@@ -138,7 +138,7 @@ class OwnerOnly(commands.Cog):
         """Unload a cog."""
 
         try:
-            await self.client.unload_extension(f'.{cogs}.{ext}', package=ROOT_PACKAGE)
+            await self.bot.unload_extension(f'.{cogs}.{ext}', package=ROOT_PACKAGE)
         except commands.ExtensionNotFound, commands.ExtensionNotLoaded:
             await ctx.reply(":anger: specified cog name doesn't exits bozo")
             return
@@ -152,14 +152,14 @@ class OwnerOnly(commands.Cog):
 
     @debug.command(name='copyglobal')
     async def copy_global_to_test_guild(self, ctx: Context, resync: bool | None = True):
-        self.client.tree.copy_global_to(guild=settings.test_guild)
+        self.bot.tree.copy_global_to(guild=settings.test_guild)
         await ctx.reply(
             ':white_check_mark: Copied global app commands to **test guild**'
         )
 
         if resync:
             try:
-                await self.client.tree.sync(guild=settings.test_guild)
+                await self.bot.tree.sync(guild=settings.test_guild)
             except discord.DiscordException:
                 log.exception('Unable to sync application commands.')
                 await ctx.reply(':anger: Unable to sync application commands.')
@@ -170,11 +170,11 @@ class OwnerOnly(commands.Cog):
     @debug.command(name='unloadappcmd')
     async def unload_app_cmd(self, ctx: Context, cmd: str, resync: bool | None = False):
         """Unload an application command."""
-        unloaded = self.client.tree.remove_command(cmd)
+        unloaded = self.bot.tree.remove_command(cmd)
 
         if resync:
             try:
-                await self.client.tree.sync()
+                await self.bot.tree.sync()
             except discord.DiscordException:
                 log.exception('Unable to sync application commands.')
                 await ctx.reply(':anger: Unable to sync application commands.')
@@ -203,7 +203,7 @@ class OwnerOnly(commands.Cog):
             target_fmt = 'current guild'
 
         try:
-            synced = await self.client.tree.sync(guild=guild)
+            synced = await self.bot.tree.sync(guild=guild)
         except commands.CommandError:
             log.exception('Unable to sync application commands.')
             await ctx.reply(':anger: Unable to sync application commands.')
@@ -228,7 +228,7 @@ class OwnerOnly(commands.Cog):
             guild = settings.test_guild
             target_fmt = 'current guild'
 
-        cmds = await self.client.tree.fetch_commands(guild=guild)
+        cmds = await self.bot.tree.fetch_commands(guild=guild)
 
         fmt = '\n'.join(repr(cmd) for cmd in cmds) if cmds else 'None'
         await ctx.reply(
@@ -267,8 +267,8 @@ class OwnerOnly(commands.Cog):
     @commands.command()
     async def update_status(self, ctx: Context):
         """Update the bots status."""
-        guilds = len(self.client.guilds)
-        await self.client.change_presence(
+        guilds = len(self.bot.guilds)
+        await self.bot.change_presence(
             activity=discord.Game(f'with {guilds} moisturized servers')
         )
         await ctx.send(':white_check_mark: Status updated.')
@@ -302,7 +302,7 @@ class OwnerOnly(commands.Cog):
 
         # Fetch emoji bytes
         if emoji_link:
-            emoji = await self.client.http.get_from_cdn(emoji_link)
+            emoji = await self.bot.http.get_from_cdn(emoji_link)
         elif reply and reply.attachments:
             emoji = await reply.attachments[0].read(use_cached=True)
         else:
@@ -415,7 +415,7 @@ class OwnerOnly(commands.Cog):
             'self': self,
             'guild': ctx.guild,
             'author': ctx.author,
-            'client': self.client,
+            'client': self.bot,
             'channel': ctx.channel,
             'message': ctx.message,
             '_': self._last_result,
@@ -464,9 +464,10 @@ class OwnerOnly(commands.Cog):
         variables = {
             'ctx': ctx,
             'self': self,
+            'bot': self.bot,
             'guild': ctx.guild,
+            'client': self.bot,
             'author': ctx.author,
-            'client': self.client,
             'message': ctx.message,
             'channel': ctx.channel,
             '_': None,
@@ -490,7 +491,7 @@ class OwnerOnly(commands.Cog):
 
         while True:
             try:
-                response = await self.client.wait_for(
+                response = await self.bot.wait_for(
                     'message', check=check, timeout=10.0 * 60.0
                 )
             except TimeoutError:
@@ -578,13 +579,13 @@ class OwnerOnly(commands.Cog):
             unique_memory = memory.uss / 1024**2
 
         # Message cache stats
-        if self.client._connection.max_messages:  # noqa: SLF001
-            message_cache = f'{len(self.client.cached_messages)}/{self.client._connection.max_messages}'  # noqa: SLF001
+        if self.bot._connection.max_messages:  # noqa: SLF001
+            message_cache = f'{len(self.bot.cached_messages)}/{self.bot._connection.max_messages}'  # noqa: SLF001
         else:
             message_cache = 'Disabled'
 
         # Tasks stats
-        all_tasks = asyncio.all_tasks(loop=self.client.loop)
+        all_tasks = asyncio.all_tasks(loop=self.bot.loop)
         event_tasks = [
             t for t in all_tasks if 'Client._run_event' in repr(t) and not t.done()
         ]
@@ -609,7 +610,7 @@ class OwnerOnly(commands.Cog):
 
         python_version, _, _ = sys.version.partition('(')
 
-        stats_cog = self.client.get_cog('Stats')
+        stats_cog = self.bot.get_cog('Stats')
         commands_run = 0
         socket_events = 0
         if stats_cog is not None:
@@ -640,8 +641,8 @@ class OwnerOnly(commands.Cog):
             )
             .add_field(
                 name='Cache',
-                value=f'Guilds: {len(self.client.guilds)}\n'
-                f'Users: {len(self.client.users)}\n'
+                value=f'Guilds: {len(self.bot.guilds)}\n'
+                f'Users: {len(self.bot.users)}\n'
                 f'Messages: {message_cache}',
                 inline=True,
             )
@@ -668,10 +669,10 @@ class OwnerOnly(commands.Cog):
 
         description: list[str] = []
 
-        started_at = discord.utils.format_dt(self.client.started_at, 'R')
+        started_at = discord.utils.format_dt(self.bot.started_at, 'R')
         description.append(f'Started: {started_at}')
 
-        global_rate_limit = not self.client.http._global_over.is_set()  # noqa: SLF001
+        global_rate_limit = not self.bot.http._global_over.is_set()  # noqa: SLF001
         description.append(f'Global Rate Limit: {global_rate_limit}')
 
         if global_rate_limit:

@@ -15,5 +15,5 @@ class JishakuDebugCog(*OPTIONAL_FEATURES, *STANDARD_FEATURES):  # type: ignore[r
         return discord.PartialEmoji(name='\N{GEAR}')
 
 
-async def setup(client: MoistBot):
-    await client.add_cog(JishakuDebugCog(bot=client))
+async def setup(bot: MoistBot):
+    await bot.add_cog(JishakuDebugCog(bot=bot))

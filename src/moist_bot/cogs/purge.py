@@ -168,8 +168,8 @@ class WebhookPurgeFlags(PurgeFlags):
 class Purge(commands.Cog):
     """Bulk message deletion with various filters."""
 
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -572,5 +572,5 @@ class Purge(commands.Cog):
         )
 
 
-async def setup(client: MoistBot) -> None:
-    await client.add_cog(Purge(client))
+async def setup(bot: MoistBot) -> None:
+    await bot.add_cog(Purge(bot))

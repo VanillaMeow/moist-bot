@@ -350,12 +350,12 @@ class SnakeGameView(discord.ui.View):
 
     async def on_error(
         self,
-        interaction: discord.Interaction,  # noqa: ARG002
-        error: Any,  # noqa: ARG002
+        interaction: discord.Interaction,
+        error: Any,
         item: Any,
         /,
     ) -> None:
-        log.error('Ignoring exception in view %r for item %r', self, item)
+        await super().on_error(interaction, error, item)
         await self._on_game_over(':warning: An unknown error occurred!')
 
     async def on_timeout(self) -> None:
@@ -517,8 +517,8 @@ active_snake_games: dict[int, SnakeGameView] = {}
 
 
 class SnakeGame(commands.Cog):
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -567,8 +567,8 @@ class SnakeGame(commands.Cog):
         del game_instance, view
 
 
-async def setup(client: MoistBot):
-    await client.add_cog(SnakeGame(client))
+async def setup(bot: MoistBot):
+    await bot.add_cog(SnakeGame(bot))
 
 
 """

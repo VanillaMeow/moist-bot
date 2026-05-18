@@ -732,5 +732,5 @@ class Stats(commands.Cog):
         )
 
 
-async def setup(client: MoistBot) -> None:
-    await client.add_cog(Stats(client))
+async def setup(bot: MoistBot) -> None:
+    await bot.add_cog(Stats(bot))

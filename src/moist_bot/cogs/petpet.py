@@ -145,9 +145,9 @@ class PetPetEmbed(discord.Embed):
 
 
 class PetPet(commands.Cog):
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
-        self.execute = self.client.loop.run_in_executor
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
+        self.execute = self.bot.loop.run_in_executor
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -179,7 +179,7 @@ class PetPet(commands.Cog):
 
         # Avoid blocking
         img_buffer = await self.execute(
-            self.client.executor, self._get_buffer, img_buffer
+            self.bot.executor, self._get_buffer, img_buffer
         )
 
         # Send image
@@ -187,5 +187,5 @@ class PetPet(commands.Cog):
         await ctx.reply(file=file, embed=PetPetEmbed(user))
 
 
-async def setup(client: MoistBot) -> None:
-    await client.add_cog(PetPet(client))
+async def setup(bot: MoistBot) -> None:
+    await bot.add_cog(PetPet(bot))

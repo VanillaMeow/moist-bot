@@ -324,6 +324,7 @@ class Meta(commands.Cog):
 
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
+
         self.old_help_command: commands.HelpCommand | None = bot.help_command
         bot.help_command = PaginatedHelpCommand()
         bot.help_command.cog = self
@@ -424,5 +425,5 @@ class Meta(commands.Cog):
         await ctx.send('go')
 
 
-async def setup(client: MoistBot) -> None:
-    await client.add_cog(Meta(client))
+async def setup(bot: MoistBot) -> None:
+    await bot.add_cog(Meta(bot))

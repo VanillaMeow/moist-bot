@@ -28,8 +28,10 @@ class AvatarEmbed(discord.Embed):
 
 
 class Avatar(commands.Cog):
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
+    """Display a user's avatar."""
+
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:

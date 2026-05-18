@@ -40,8 +40,8 @@ class Meow(commands.Cog):
         'purr',
     ]
 
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -64,11 +64,11 @@ class Meow(commands.Cog):
             return await ctx.reply(":warning: I can't meow that long >~<")
 
         # Automatically copy the contents to the clipboard for bot owners :3
-        if await self.client.is_owner(ctx.author):
+        if await self.bot.is_owner(ctx.author):
             pyperclip.copy(random_sentence)
 
         await ctx.reply(random_sentence)
 
 
-async def setup(client: MoistBot) -> None:
-    await client.add_cog(Meow(client))
+async def setup(bot: MoistBot) -> None:
+    await bot.add_cog(Meow(bot))

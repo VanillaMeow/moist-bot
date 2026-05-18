@@ -12,8 +12,8 @@ if TYPE_CHECKING:
 
 
 class CooldownTest(commands.Cog):
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
 
     @commands.is_owner()
     @commands.cooldown(rate=1, per=10, type=commands.BucketType.user)
@@ -26,5 +26,5 @@ class CooldownTest(commands.Cog):
         await ctx.message.add_reaction('✅')
 
 
-async def setup(client: MoistBot) -> None:
-    await client.add_cog(CooldownTest(client))
+async def setup(bot: MoistBot) -> None:
+    await bot.add_cog(CooldownTest(bot))

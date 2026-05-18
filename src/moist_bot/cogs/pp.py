@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 
 class Pp(commands.Cog):
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
 
         self.rigged = [
             150560836971266048,
@@ -50,5 +50,5 @@ class Pp(commands.Cog):
         await ctx.reply(embed=embed)
 
 
-async def setup(client: MoistBot) -> None:
-    await client.add_cog(Pp(client))
+async def setup(bot: MoistBot) -> None:
+    await bot.add_cog(Pp(bot))

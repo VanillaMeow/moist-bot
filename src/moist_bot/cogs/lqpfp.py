@@ -30,10 +30,10 @@ class AvatarEmbed(discord.Embed):
 
 
 class LowQualityProfilePicture(commands.Cog):
-    def __init__(self, client: MoistBot):
-        self.client: MoistBot = client
+    def __init__(self, bot: MoistBot):
+        self.bot: MoistBot = bot
         self.executor = ProcessPoolExecutor()
-        self.execute = self.client.loop.run_in_executor
+        self.execute = self.bot.loop.run_in_executor
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -84,5 +84,5 @@ class LowQualityProfilePicture(commands.Cog):
             await ctx.reply(file=file, embed=AvatarEmbed(user))
 
 
-async def setup(client: MoistBot) -> None:
-    await client.add_cog(LowQualityProfilePicture(client))
+async def setup(bot: MoistBot) -> None:
+    await bot.add_cog(LowQualityProfilePicture(bot))
