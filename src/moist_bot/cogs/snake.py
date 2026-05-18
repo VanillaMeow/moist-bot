@@ -16,7 +16,7 @@ from discord.ext import commands
 from numpy.random import default_rng
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Iterable, Iterator
+    from collections.abc import Callable, Generator, Iterable
 
     from moist_bot.bot import MoistBot
     from moist_bot.utils.context import Context
@@ -256,7 +256,7 @@ class SnakeGameContainer:
             self.game_over()
 
     @contextmanager
-    def _render(self) -> Iterator[str]:
+    def _render(self) -> Generator[str]:
         """Flatten the current field array into a single string"""
 
         try:
@@ -302,9 +302,6 @@ class SnakeGameContainer:
 
 
 class SnakeGameView(discord.ui.View):
-    game_timeout: float
-    _tm_fmt: str
-
     def __init__(
         self,
         ctx: Context,
@@ -315,6 +312,7 @@ class SnakeGameView(discord.ui.View):
         timeout: float = 15,
     ):
         super().__init__(timeout=timeout)
+        self.game_timeout: float = timeout
         self.ctx: Context = ctx
         self.embed: discord.Embed = embed
         self.message: discord.Message = message  # type: ignore[]
@@ -494,7 +492,7 @@ class SnakeGameView(discord.ui.View):
         # Edit original message to the updated game state
         if self.game_instance.alive:
             tm_in = discord.utils.utcnow() + timedelta(seconds=self.game_timeout)
-            self._tm_fmt = tm_fmt = discord.utils.format_dt(tm_in, 'R')
+            tm_fmt = discord.utils.format_dt(tm_in, 'R')
 
             self.embed.description = self.game_instance.render()
             await interaction.response.edit_message(
@@ -524,7 +522,7 @@ class SnakeGame(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{SNAKE}')
 
-    @commands.hybrid_command(fallback='start')
+    @commands.hybrid_command()
     @commands.cooldown(rate=1, per=10, type=commands.BucketType.member)
     @app_commands.choices(
         size=[
