@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import parsedatetime as pdt
 from dateutil.relativedelta import relativedelta
-from discord import Interaction, app_commands
+from discord import app_commands
 from discord.ext import commands
 
 from .formats import format_dt, human_join, plural
@@ -18,10 +18,9 @@ from .formats import format_dt, human_join, plural
 if TYPE_CHECKING:
     from typing import Self
 
-    from discord import Client
+    from discord import Client, Interaction as DiscordInteraction
 
-    from moist_bot.bot import MoistBot
-    from moist_bot.utils.context import Context
+    from moist_bot.utils.context import Context, Interaction
 
 
 # Monkey patch mins and secs into the units
@@ -104,16 +103,14 @@ class RelativeDelta(app_commands.Transformer, commands.Converter):
         except ValueError as e:
             raise commands.BadArgument(str(e)) from None
 
-    async def transform(
-        self, interaction: Interaction[MoistBot], value: str, /
-    ) -> relativedelta:
+    async def transform(self, interaction: Interaction, value: str, /) -> relativedelta:
         try:
             return self.__do_conversion(value)
         except ValueError as e:
             raise app_commands.AppCommandError(str(e)) from None
 
     async def autocomplete(
-        self, interaction: Interaction[Client], value: float | str, /
+        self, interaction: DiscordInteraction[Client], value: float | str, /
     ) -> list[app_commands.Choice[str | int | float]]:
         return await super().autocomplete(interaction, value)
 
@@ -195,7 +192,7 @@ class BadTimeTransform(app_commands.AppCommandError):
 
 class TimeTransformer(app_commands.Transformer):  # type: ignore[]
     async def transform(
-        self, interaction: Interaction[MoistBot], value: str, /
+        self, interaction: Interaction, value: str, /
     ) -> datetime.datetime:
         tzinfo = datetime.UTC
         reminder = interaction.client.get_cog('Reminder')
@@ -216,7 +213,7 @@ class TimeTransformer(app_commands.Transformer):  # type: ignore[]
             return short.dt
 
     async def autocomplete(
-        self, interaction: Interaction[Client], value: float | str, /
+        self, interaction: DiscordInteraction[Client], value: float | str, /
     ) -> list[app_commands.Choice[str | int | float]]:
         return await super().autocomplete(interaction, value)
 

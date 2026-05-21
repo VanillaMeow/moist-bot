@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.elements import ColumnElement
 
     from moist_bot.bot import MoistBot
-    from moist_bot.utils.context import Context, GuildContext
+    from moist_bot.utils.context import Context, GuildContext, Interaction
 
 
 log = logging.getLogger('discord.' + __name__)
@@ -286,7 +286,7 @@ class Stats(commands.Cog):
                 )
             )
 
-    async def register_interaction(self, interaction: discord.Interaction) -> None:
+    async def register_interaction(self, interaction: Interaction) -> None:
         command = interaction.command
         if command is None:
             return
@@ -320,7 +320,7 @@ class Stats(commands.Cog):
         await self.register_command(ctx, failed=True)
 
     @commands.Cog.listener()
-    async def on_interaction(self, interaction: discord.Interaction) -> None:
+    async def on_interaction(self, interaction: Interaction) -> None:
         command = interaction.command
         if (
             command is not None

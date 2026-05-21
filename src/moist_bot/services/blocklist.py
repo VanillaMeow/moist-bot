@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from moist_bot.bot import MoistBot
-    from moist_bot.utils.context import Context
+    from moist_bot.utils.context import Context, Interaction
 
 
 log = logging.getLogger('discord.' + __name__)
@@ -501,7 +501,7 @@ class BlocklistManager:
         )
 
     async def check_interaction(
-        self, interaction: discord.Interaction[MoistBot]
+        self, interaction: Interaction
     ) -> BlocklistDecision | None:
         """Check an application command interaction against blocklist rules."""
 

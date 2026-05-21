@@ -5,12 +5,40 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
+
+    type Interaction = discord.Interaction[MoistBot]
 else:
     type MoistBot = commands.Bot
+
+    class Interaction(discord.Interaction[MoistBot]):
+        """Project interaction with the client narrowed to the bot."""
+
+
+class MoistCommandTree(app_commands.CommandTree[MoistBot]):
+    """Application command tree that enforces blocklist checks globally."""
+
+    async def interaction_check(self, interaction: Interaction, /) -> bool:
+        """Reject blocklisted application command interactions before dispatch."""
+
+        bot = self.client
+        decision = await bot.blocklist.check_interaction(interaction)
+        if decision is None:
+            return True
+
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.send_message(
+                    ':no_entry_sign: You cannot use this bot here.',
+                    ephemeral=True,
+                )
+            except discord.HTTPException:
+                pass
+        return False
 
 
 class ConfirmationView(discord.ui.View):

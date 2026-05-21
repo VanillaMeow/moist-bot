@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 import aiohttp
 import discord
 import discord.utils
-from discord import app_commands
 from discord.ext import commands
 
 from .constants import COGS_FOLDER_PATH, DATETIME_NEVER, ROOT_PACKAGE
@@ -17,13 +16,15 @@ from .db import create_engine, create_session_maker
 from .models import BlocklistScope, BlocklistSource
 from .services import BlocklistManager
 from .settings import settings
-from .utils.context import Context
+from .utils.context import Context, MoistCommandTree
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from discord import Interaction, Message
+    from discord import Message
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+    from .utils.context import Interaction
 
 
 log = logging.getLogger('discord.' + __name__)
@@ -34,30 +35,6 @@ BOT_PREFIXES = ('water ', 'Water ')
 
 def _get_prefix(bot: MoistBot, message: Message) -> list[str]:
     return commands.when_mentioned_or(*BOT_PREFIXES)(bot, message)
-
-
-class MoistCommandTree(app_commands.CommandTree['MoistBot']):
-    """Application command tree that enforces blocklist checks globally."""
-
-    async def interaction_check(
-        self, interaction: discord.Interaction[MoistBot], /
-    ) -> bool:
-        """Reject blocklisted application command interactions before dispatch."""
-
-        bot = self.client
-        decision = await bot.blocklist.check_interaction(interaction)
-        if decision is None:
-            return True
-
-        if not interaction.response.is_done():
-            try:
-                await interaction.response.send_message(
-                    ':no_entry_sign: You cannot use this bot here',
-                    ephemeral=True,
-                )
-            except discord.HTTPException:
-                pass
-        return False
 
 
 class MoistBot(commands.Bot):
