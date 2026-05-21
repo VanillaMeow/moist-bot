@@ -29,12 +29,11 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 
-extras = ('water ', 'Water ')
-sep = '-' * 12
+BOT_PREFIXES = ('water ', 'Water ')
 
 
 def _get_prefix(bot: MoistBot, message: Message) -> list[str]:
-    return commands.when_mentioned_or(*extras)(bot, message)
+    return commands.when_mentioned_or(*BOT_PREFIXES)(bot, message)
 
 
 class MoistCommandTree(app_commands.CommandTree['MoistBot']):
@@ -194,11 +193,8 @@ class MoistBot(commands.Bot):
         self._auto_spam_count[ctx.author.id] += 1
         count = self._auto_spam_count[ctx.author.id]
         log.warning(
-            'Command spam attempt from %s (%s), strike %s/5. Retry after %.1fs.',
-            ctx.author,
-            ctx.author.id,
-            count,
-            retry_after,
+            f'Command spam attempt from {ctx.author} ({ctx.author.id}), '
+            f'strike {count}/5. Retry after {retry_after:.1f}s.'
         )
 
         if count >= 5:
@@ -253,6 +249,8 @@ class MoistBot(commands.Bot):
             status=discord.Status.idle,
             activity=discord.Game(f'with {guilds} moisturised servers'),
         )
+
+        sep = '-' * 12
 
         if self.started_at == DATETIME_NEVER:
             self.started_at = discord.utils.utcnow()
