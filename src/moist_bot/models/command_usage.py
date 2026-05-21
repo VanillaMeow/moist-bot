@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Final, cast
 
 from pydantic import field_validator
@@ -18,6 +19,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Field, SQLModel, col, select
 
+from moist_bot.utils.converters import normalize_datetime
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
@@ -29,35 +32,20 @@ STATS_SENTINEL_ID: Final = 0
 STATS_SENTINEL_COMMAND: Final = ''
 
 
-class CommandStatsScope:
+class CommandStatsScope(StrEnum):
     """Rollup dimensions stored in command usage stats."""
 
-    __all__ = ()
-
-    GLOBAL: Final = 'global'
-    GLOBAL_COMMAND: Final = 'global_command'
-    GLOBAL_GUILD: Final = 'global_guild'
-    GLOBAL_USER: Final = 'global_user'
-    GUILD: Final = 'guild'
-    GUILD_COMMAND: Final = 'guild_command'
-    GUILD_USER: Final = 'guild_user'
-    GUILD_USER_COMMAND: Final = 'guild_user_command'
+    GLOBAL = 'global'
+    GLOBAL_COMMAND = 'global_command'
+    GLOBAL_GUILD = 'global_guild'
+    GLOBAL_USER = 'global_user'
+    GUILD = 'guild'
+    GUILD_COMMAND = 'guild_command'
+    GUILD_USER = 'guild_user'
+    GUILD_USER_COMMAND = 'guild_user_command'
 
 
-type CommandUsageStatsKey = tuple[str, int, int, str]
-
-
-def normalize_datetime(value: datetime | str | None) -> datetime | None:
-    """Return an aware UTC datetime for values loaded from SQLite."""
-
-    if value is None:
-        return None
-    if isinstance(value, str):
-        value = datetime.fromisoformat(value)
-
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+type CommandUsageStatsKey = tuple[CommandStatsScope, int, int, str]
 
 
 class CommandUsageSummary(SQLModel):
@@ -113,6 +101,31 @@ class CommandUsage(SQLModel, table=True):
     """Raw command invocation used for history and time-windowed stats."""
 
     __tablename__: ClassVar[str] = 'command_usage'
+    __table_args__: ClassVar = (
+        Index(
+            'ix_command_usage_guild_author_used_at',
+            'guild_id',
+            'author_id',
+            'used_at',
+        ),
+        Index(
+            'ix_command_usage_guild_command_used_at',
+            'guild_id',
+            'command',
+            'used_at',
+        ),
+        Index(
+            'ix_command_usage_guild_used_at_author',
+            'guild_id',
+            'used_at',
+            'author_id',
+        ),
+        Index(
+            'ix_command_usage_used_at_command',
+            'used_at',
+            'command',
+        ),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     guild_id: int | None = Field(
@@ -130,12 +143,6 @@ class CommandUsage(SQLModel, table=True):
     command: str = Field(max_length=200, index=True)
     failed: bool = Field(default=False, index=True)
     app_command: bool = Field(default=False, index=True)
-
-    @staticmethod
-    def normalize_datetime(value: datetime | str | None) -> datetime | None:
-        """Return an aware UTC datetime for raw command timestamps."""
-
-        return normalize_datetime(value)
 
     @classmethod
     async def count_and_first(
@@ -171,7 +178,7 @@ class CommandUsage(SQLModel, table=True):
             select(command.label('label'), uses)
             .where(*criteria)
             .group_by(command)
-            .order_by(uses.desc())
+            .order_by(uses.desc(), command.asc())
             .limit(limit)
         )
 
@@ -189,14 +196,14 @@ class CommandUsage(SQLModel, table=True):
     ) -> list[CommandUsageUserCount]:
         """Return the most active users from raw events."""
 
-        author_id = col(cls.author_id)
+        author_id = cast('ColumnElement[int]', col(cls.author_id))
         uses = func.count(col(cls.id)).label('uses')
 
         result = await session.execute(
             select(author_id, uses)
             .where(*criteria)
             .group_by(author_id)
-            .order_by(uses.desc())
+            .order_by(uses.desc(), author_id.asc())
             .limit(limit)
         )
 
@@ -213,14 +220,14 @@ class CommandUsage(SQLModel, table=True):
     ) -> list[CommandUsageGuildCount]:
         """Return the most active guilds from raw events."""
 
-        guild_id = col(cls.guild_id)
+        guild_id = cast('ColumnElement[int | None]', col(cls.guild_id))
         uses = func.count(col(cls.id)).label('uses')
 
         result = await session.execute(
             select(guild_id, uses)
             .where(*criteria)
             .group_by(guild_id)
-            .order_by(uses.desc())
+            .order_by(uses.desc(), guild_id.asc())
             .limit(limit)
         )
 
@@ -343,7 +350,9 @@ class CommandUsageStats(SQLModel, table=True):
     def _usage_keys(usage: CommandUsage) -> Sequence[CommandUsageStatsKey]:
         """Return every rollup key touched by a raw usage event."""
 
-        guild_id = usage.guild_id or STATS_SENTINEL_ID
+        guild_id = (
+            usage.guild_id if usage.guild_id is not None else STATS_SENTINEL_ID
+        )
         global_keys: list[CommandUsageStatsKey] = [
             (
                 CommandStatsScope.GLOBAL,
@@ -419,7 +428,7 @@ class CommandUsageStats(SQLModel, table=True):
                 if stats is None:
                     scope, guild_id, author_id, command = key
                     stats = cls(
-                        scope=scope,
+                        scope=scope.value,
                         guild_id=guild_id,
                         author_id=author_id,
                         command=command,
@@ -479,7 +488,7 @@ class CommandUsageStats(SQLModel, table=True):
     async def count_and_first(
         cls,
         session: AsyncSession,
-        scope: str,
+        scope: CommandStatsScope,
         *,
         guild_id: int = STATS_SENTINEL_ID,
         author_id: int = STATS_SENTINEL_ID,
@@ -495,7 +504,7 @@ class CommandUsageStats(SQLModel, table=True):
                 total_uses.label('total_uses'),
                 first_used.label('first_used'),
             ).where(
-                col(cls.scope) == scope,
+                col(cls.scope) == scope.value,
                 col(cls.guild_id) == guild_id,
                 col(cls.author_id) == author_id,
                 col(cls.command) == command,
@@ -512,7 +521,7 @@ class CommandUsageStats(SQLModel, table=True):
     async def top_commands(
         cls,
         session: AsyncSession,
-        scope: str,
+        scope: CommandStatsScope,
         *,
         guild_id: int = STATS_SENTINEL_ID,
         author_id: int = STATS_SENTINEL_ID,
@@ -529,11 +538,11 @@ class CommandUsageStats(SQLModel, table=True):
                 total_uses.label('uses'),
             )
             .where(
-                col(cls.scope) == scope,
+                col(cls.scope) == scope.value,
                 col(cls.guild_id) == guild_id,
                 col(cls.author_id) == author_id,
             )
-            .order_by(total_uses.desc())
+            .order_by(total_uses.desc(), command.asc())
             .limit(limit)
         )
 
@@ -546,7 +555,7 @@ class CommandUsageStats(SQLModel, table=True):
     async def top_users(
         cls,
         session: AsyncSession,
-        scope: str,
+        scope: CommandStatsScope,
         *,
         guild_id: int = STATS_SENTINEL_ID,
         limit: int = 5,
@@ -562,10 +571,10 @@ class CommandUsageStats(SQLModel, table=True):
                 total_uses.label('uses'),
             )
             .where(
-                col(cls.scope) == scope,
+                col(cls.scope) == scope.value,
                 col(cls.guild_id) == guild_id,
             )
-            .order_by(total_uses.desc())
+            .order_by(total_uses.desc(), author_id.asc())
             .limit(limit)
         )
 
@@ -590,8 +599,8 @@ class CommandUsageStats(SQLModel, table=True):
                 guild_id.label('guild_id'),
                 total_uses.label('uses'),
             )
-            .where(col(cls.scope) == CommandStatsScope.GLOBAL_GUILD)
-            .order_by(total_uses.desc())
+            .where(col(cls.scope) == CommandStatsScope.GLOBAL_GUILD.value)
+            .order_by(total_uses.desc(), guild_id.asc())
             .limit(limit)
         )
 

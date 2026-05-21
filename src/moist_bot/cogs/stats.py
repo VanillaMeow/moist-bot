@@ -23,6 +23,7 @@ from moist_bot.models import (
     CommandUsageUserCount,
 )
 from moist_bot.utils import formats
+from moist_bot.utils.converters import normalize_datetime, shorten
 from moist_bot.utils.formats import plural
 from moist_bot.utils.paginator import RoboPages
 
@@ -37,20 +38,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger('discord.' + __name__)
 
-MAX_HISTORY_LIMIT = 50
-MAX_HISTORY_DAYS = 90
 HISTORY_COMMAND_WIDTH = 64
 HISTORY_PAGE_SIZE = 8
-
-
-def clamp(value: int, min_value: int, max_value: int) -> int:
-    return max(min_value, min(value, max_value))
-
-
-def shorten(value: str, max_length: int) -> str:
-    if len(value) <= max_length:
-        return value
-    return value[: max_length - 3] + '...'
 
 
 async def can_view_history(ctx: GuildContext) -> bool:
@@ -91,7 +80,7 @@ def format_history_table(
 
     rendered_rows = []
     for index, command_usage in enumerate(rows, start=start_index):
-        used_at = CommandUsage.normalize_datetime(command_usage.used_at)
+        used_at = normalize_datetime(command_usage.used_at)
         used = used_at.strftime('%Y-%m-%d %H:%M') if used_at else 'Unknown'
         guild_id = command_usage.guild_id
 
@@ -122,7 +111,6 @@ class CommandHistoryPageSource(menus.PageSource):
         title: str,
         criteria: Iterable[ColumnElement[bool]] = (),
         summary: str | None = None,
-        max_entries: int | None = None,
         include_author: bool = False,
         include_guild: bool = False,
         per_page: int = HISTORY_PAGE_SIZE,
@@ -131,7 +119,6 @@ class CommandHistoryPageSource(menus.PageSource):
         self.title: str = title
         self.criteria: tuple[ColumnElement[bool], ...] = tuple(criteria)
         self.summary: str | None = summary
-        self.max_entries: int | None = max_entries
         self.include_author: bool = include_author
         self.include_guild: bool = include_guild
         self.per_page: int = per_page
@@ -143,9 +130,6 @@ class CommandHistoryPageSource(menus.PageSource):
                 session,
                 criteria=self.criteria,
             )
-
-        if self.max_entries is not None:
-            total_entries = min(total_entries, self.max_entries)
 
         self.total_entries = total_entries
 
@@ -160,12 +144,6 @@ class CommandHistoryPageSource(menus.PageSource):
     async def get_page(self, page_number: int) -> CommandHistoryPage:
         offset = page_number * self.per_page
         limit = self.per_page
-
-        if self.max_entries is not None:
-            remaining = self.max_entries - offset
-            if remaining <= 0:
-                raise IndexError
-            limit = min(limit, remaining)
 
         async with self.bot.db_session_maker() as session:
             rows = await CommandUsage.history(
@@ -217,7 +195,6 @@ async def send_history_paginator(
     title: str,
     criteria: Iterable[ColumnElement[bool]] = (),
     summary: str | None = None,
-    max_entries: int | None = None,
     include_author: bool = False,
     include_guild: bool = False,
 ) -> None:
@@ -226,7 +203,6 @@ async def send_history_paginator(
         title=title,
         criteria=criteria,
         summary=summary,
-        max_entries=max_entries,
         include_author=include_author,
         include_guild=include_guild,
     )
@@ -626,7 +602,9 @@ class Stats(commands.Cog):
     @commands.is_owner()
     async def stats_session(self, ctx: Context, limit: int = 12) -> None:
         """Shows current-process command statistics."""
-        limit = clamp(limit, 1, MAX_HISTORY_LIMIT)
+        if limit == 0:
+            raise commands.BadArgument('Limit must not be 0.')
+
         total = sum(self.command_stats.values())
         slash_commands = self.command_types_used[True]
         delta = discord.utils.utcnow() - self.bot.started_at
@@ -685,7 +663,9 @@ class Stats(commands.Cog):
         days: int = 7,
     ) -> None:
         """Shows recent command history for a command in this server."""
-        days = clamp(days, 1, MAX_HISTORY_DAYS)
+        if days < 1:
+            raise commands.BadArgument('Days must be at least 1.')
+
         since = discord.utils.utcnow() - datetime.timedelta(days=days)
 
         criteria = (
@@ -713,20 +693,17 @@ class Stats(commands.Cog):
                 f'`{command}` in the last {plural(days):day}: '
                 f'{success} succeeded, {failed} failed.'
             ),
-            max_entries=MAX_HISTORY_LIMIT,
             include_author=True,
         )
 
     @stats_history.command(name='global')
     @commands.is_owner()
-    async def stats_history_global(self, ctx: Context, limit: int = 15) -> None:
+    async def stats_history_global(self, ctx: Context) -> None:
         """Shows recent command history across every guild."""
-        limit = clamp(limit, 1, MAX_HISTORY_LIMIT)
         await send_history_paginator(
             ctx,
             self.bot,
             title='Recent Global Commands',
-            max_entries=limit,
             include_author=True,
             include_guild=True,
         )

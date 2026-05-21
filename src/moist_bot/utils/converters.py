@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from io import BytesIO
 from typing import TYPE_CHECKING, overload
 from urllib import error as url_error
@@ -27,6 +28,27 @@ def remove_decimal(number: N, ndigits: int = 2) -> N:
     if number.is_integer():
         return int(number)
     return round(number, ndigits)
+
+
+def normalize_datetime(value: datetime | str | None) -> datetime | None:
+    """Return an aware UTC datetime for values loaded from SQLite."""
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def shorten(value: str, max_length: int) -> str:
+    """Shorten a string to a maximum length using an ASCII ellipsis."""
+
+    if len(value) <= max_length:
+        return value
+    return value[: max_length - 3] + '...'
 
 
 def is_url(text: str) -> bool:
