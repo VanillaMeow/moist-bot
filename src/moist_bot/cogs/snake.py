@@ -7,7 +7,7 @@ from datetime import timedelta
 from enum import StrEnum
 from functools import wraps
 from inspect import cleandoc
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, cast
 
 import discord
 import discord.utils
@@ -18,6 +18,8 @@ from numpy.random import default_rng
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterable
+
+    from numpy.typing import NDArray
 
     from moist_bot.bot import MoistBot
     from moist_bot.utils.context import Context
@@ -47,14 +49,6 @@ Full interaction (including overheads) took %sms
 )
 
 
-class SnakeButtonLabel(StrEnum):
-    UP = 'Up'
-    LEFT = 'Left'
-    DOWN = 'Down'
-    RIGHT = 'Right'
-    QUIT = 'Quit'
-
-
 def perf_timer[**P](
     begin_out: str | None = None, end_out: str | None = None
 ) -> Callable[[Callable[P, None]], Callable[P, None]]:
@@ -77,6 +71,14 @@ def perf_timer[**P](
         return wrapper
 
     return inner
+
+
+class SnakeButtonLabel(StrEnum):
+    UP = 'Up'
+    LEFT = 'Left'
+    DOWN = 'Down'
+    RIGHT = 'Right'
+    QUIT = 'Quit'
 
 
 class IterableRepeater:
@@ -107,7 +109,7 @@ class IterableRepeater:
         return self.item
 
 
-class SnakeGameAssets(TypedDict):
+class SnakeGameAssets(NamedTuple):
     empty: str
     apple: str
     snake_head: str
@@ -119,12 +121,12 @@ class SnakeGameContainer:
 
     __slots__ = (
         'alive',
-        'apple',
+        'apple_xy',
         'ate_apple',
-        'empty_field',
-        'field',
+        'empty_field_yx',
         'field_area',
-        'field_dim',
+        'field_dim_xy',
+        'field_yx',
         'free_cell_count',
         'free_cell_indexes',
         'free_cells',
@@ -134,20 +136,20 @@ class SnakeGameContainer:
         'perf_render_begin',
         'perf_render_end',
         'rendered_field',
-        'snake_body',
         'snake_body_len',
-        'snake_head',
+        'snake_body_xy',
+        'snake_head_xy',
         'won',
     )
 
-    assets: ClassVar[SnakeGameAssets] = {
-        'empty': '⬛',
-        'apple': '🟥',
-        'snake_head': '🟢',
-        'snake_body': IterableRepeater(('🟩', '🟨')),
-    }
+    assets: ClassVar[SnakeGameAssets] = SnakeGameAssets(
+        empty='⬛',
+        apple='🟥',
+        snake_head='🟢',
+        snake_body=IterableRepeater(('🟩', '🟨')),
+    )
     rng = default_rng()
-    empty_body = np.array((-1, -1), dtype='int8')
+    empty_body = np.array((-1, -1), dtype=np.int8)
     perf_timing: bool = DO_PERF_TIMING
 
     def __init__(self, size_x: int = 10, size_y: int = 10):
@@ -156,41 +158,41 @@ class SnakeGameContainer:
             raise ValueError('A size value cannot be negative.')
 
         # Initial game state
-        self.field_dim = np.array((size_x, size_y), dtype='uint8')
-        self.field_area: int = int(self.field_dim.prod())
+        self.field_dim_xy = np.array((size_x, size_y), dtype=np.uint8)
+        self.field_area: int = int(self.field_dim_xy.prod())
 
-        self.empty_field = np.full(self.field_dim, self.assets['empty'], dtype='str_')
-        self.field = self.empty_field.copy()
+        field_dim_yx = self.field_dim_xy[::-1]
+        self.empty_field_yx = np.full(field_dim_yx, self.assets.empty, dtype=np.str_)
+        self.field_yx = self.empty_field_yx.copy()
         self.rendered_field: str = ''
 
         # Initial game objects
         self.snake_body_len: int = 2
 
-        self.snake_head = np.array(
-            tuple((round(x / 2) for x in self.field_dim)), dtype='int8'
-        )
+        self.snake_head_xy = np.rint(self.field_dim_xy / 2).astype(np.int8)
 
-        # By default, generates initial snake bodies to the right of `self.snake_head`,
+        # By default, generates initial snake bodies to the right of `self.snake_head_xy`,
         # lengthened with `self.init_snake_body_len`
-        self.snake_body = np.full((self.field_area, 2), -1, dtype='int8')
-        self.snake_body[: self.snake_body_len] = np.array(
+        self.snake_body_xy = np.full((self.field_area, 2), -1, dtype=np.int8)
+        self.snake_body_xy[: self.snake_body_len] = np.array(
             [
-                (self.snake_head[0] + o, self.snake_head[1])
+                (self.snake_head_xy[0] + o, self.snake_head_xy[1])
                 for o in range(1, self.snake_body_len + 1)
             ],
-            dtype='int8',
+            dtype=np.int8,
         )
 
-        self.apple = np.array(
-            (abs(self.snake_head[0] - 3), self.snake_head[1]), dtype='uint8'
+        self.apple_xy = np.array(
+            (abs(self.snake_head_xy[0] - 3), self.snake_head_xy[1]), dtype=np.uint8
         )
 
-        self.free_cells = np.arange(self.field_area, dtype='uint32')
-        self.free_cell_indexes = np.arange(self.field_area, dtype='int32')
+        # Free cells
+        self.free_cells = np.arange(self.field_area, dtype=np.uint32)
+        self.free_cell_indexes = np.arange(self.field_area, dtype=np.int32)
         self.free_cell_count: int = self.field_area
-        self._remove_free_cell(self._cell_index(self.snake_head))
-        for cell in self.snake_body[: self.snake_body_len]:
-            self._remove_free_cell(self._cell_index(cell))
+        self._remove_free_cell(self._cell_index(self.snake_head_xy))
+        for cell_xy in self.snake_body_xy[: self.snake_body_len]:
+            self._remove_free_cell(self._cell_index(cell_xy))
 
         # Game info
         self.ate_apple: bool = False
@@ -204,15 +206,14 @@ class SnakeGameContainer:
         self.perf_render_begin: int = 0
         self.perf_render_end: int = 0
 
-    def _cell_index(self, cell: np.ndarray) -> int:
+    def _cell_index(self, cell_xy: NDArray[np.int8]) -> int:
         """Return the flat board index for an `(x, y)` cell."""
-        x, y = cell
-        return (int(y) * int(self.field_dim[0])) + int(x)
+        x, y = cell_xy
+        return int((y * self.field_dim_xy[0]) + x)
 
-    def _cell_is_in_bounds(self, cell: np.ndarray) -> bool:
+    def _cell_is_in_bounds(self, cell_xy: np.ndarray) -> bool:
         """Return whether an `(x, y)` cell is inside the board."""
-        x, y = cell
-        return 0 <= x < self.field_dim[0] and 0 <= y < self.field_dim[1]
+        return bool(np.all((cell_xy >= 0) & (cell_xy < self.field_dim_xy)))
 
     def _remove_free_cell(self, cell_index: int) -> None:
         """Remove a cell from apple spawn candidates."""
@@ -239,18 +240,18 @@ class SnakeGameContainer:
         """Respawn apple on a random unoccupied cell."""
         free_cell_index = int(self.rng.integers(self.free_cell_count))
         cell_index = int(self.free_cells[free_cell_index])
-        width = int(self.field_dim[0])
-        self.apple[:] = (cell_index % width, cell_index // width)
+        width = self.field_dim_xy[0]
+        self.apple_xy[:] = (cell_index % width, cell_index // width)
 
     def _move_snake(self, x: int, y: int) -> None:
-        """Increment `self.snake_head` by `x` or `y`"""
-        old_tail = self.snake_body[self.snake_body_len - 1].copy()
+        """Increment `self.snake_head_xy` by `x` or `y`"""
+        old_tail_xy = self.snake_body_xy[self.snake_body_len - 1].copy()
 
-        self.snake_body = np.roll(self.snake_body, 1, axis=0)
-        self.snake_body[0] = self.snake_head
+        self.snake_body_xy = np.roll(self.snake_body_xy, 1, axis=0)
+        self.snake_body_xy[0] = self.snake_head_xy
 
-        self.snake_head[:] += np.array((x, y), dtype='int8')
-        self.ate_apple = np.array_equal(self.snake_head, self.apple)
+        self.snake_head_xy[:] += np.array((x, y), dtype=np.int8)
+        self.ate_apple = np.array_equal(self.snake_head_xy, self.apple_xy)
 
         # If the snake is about to eat an apple
         if self.ate_apple:
@@ -259,11 +260,11 @@ class SnakeGameContainer:
         else:
             # If the snake didn't eat an apple
             # remove the last snake body
-            self._add_free_cell(self._cell_index(old_tail))
-            self.snake_body[self.snake_body_len + 1] = self.empty_body
+            self._add_free_cell(self._cell_index(old_tail_xy))
+            self.snake_body_xy[self.snake_body_len + 1] = self.empty_body
 
-        if self._cell_is_in_bounds(self.snake_head):
-            self._remove_free_cell(self._cell_index(self.snake_head))
+        if self._cell_is_in_bounds(self.snake_head_xy):
+            self._remove_free_cell(self._cell_index(self.snake_head_xy))
 
     @perf_timer('perf_move_snake_begin', 'perf_move_snake_end')
     def move_snake(self, x: int = 0, y: int = 0) -> None:
@@ -292,12 +293,13 @@ class SnakeGameContainer:
             # If the snake hit its own body
             np.any(
                 np.all(
-                    self.snake_head == self.snake_body[: self.snake_body_len], axis=1
+                    self.snake_head_xy == self.snake_body_xy[: self.snake_body_len],
+                    axis=1,
                 )
             )
             # If the snake hit a wall
-            or np.any(self.snake_head + (1, 1) > self.field_dim)  # noqa: RUF005
-            or np.any(self.snake_head < (0, 0))
+            or np.any(self.snake_head_xy + (1, 1) > self.field_dim_xy)  # noqa: RUF005
+            or np.any(self.snake_head_xy < (0, 0))
         ):
             self.game_over()
 
@@ -306,25 +308,28 @@ class SnakeGameContainer:
         """Flatten the current field array into a single string"""
 
         try:
-            self.rendered_field = '\n'.join(''.join(e) for e in self.field)
+            self.rendered_field = '\n'.join(''.join(e) for e in self.field_yx)
             yield self.rendered_field
         finally:
             # Reset the field to it's empty form for future render passes
-            self.field = self.empty_field.copy()
+            self.field_yx = self.empty_field_yx.copy()
             self.perf_render_end = time.perf_counter_ns()
 
     def render(self) -> str:
         """Add game objects and invoke `self._render`"""
         self.perf_render_begin: int = time.perf_counter_ns()
 
-        for obj in self.snake_body[: self.snake_body_len]:
-            self.field[obj[1], obj[0]] = self.assets['snake_body']
+        for body_xy in self.snake_body_xy[: self.snake_body_len]:
+            body_yx = body_xy[::-1]
+            self.field_yx[body_yx[0], body_yx[1]] = self.assets.snake_body
 
         # Guh
-        self.assets['snake_body'].reset()
+        self.assets.snake_body.reset()
 
-        self.field[self.apple[1], self.apple[0]] = self.assets['apple']
-        self.field[self.snake_head[1], self.snake_head[0]] = self.assets['snake_head']
+        apple_yx = self.apple_xy[::-1]
+        snake_head_yx = self.snake_head_xy[::-1]
+        self.field_yx[apple_yx[0], apple_yx[1]] = self.assets.apple
+        self.field_yx[snake_head_yx[0], snake_head_yx[1]] = self.assets.snake_head
 
         with self._render() as r:
             return r
@@ -452,7 +457,9 @@ class SnakeGameView(discord.ui.View):
                 self.opposite_button = item
                 break
 
-    @discord.ui.button(label=SnakeButtonLabel.QUIT, style=discord.ButtonStyle.red, row=0)
+    @discord.ui.button(
+        label=SnakeButtonLabel.QUIT, style=discord.ButtonStyle.red, row=0
+    )
     async def quit(
         self, interaction: discord.Interaction, button: discord.ui.Button[SnakeGameView]
     ):
@@ -469,7 +476,9 @@ class SnakeGameView(discord.ui.View):
         self.game_instance.alive = False
         await self._on_game_over(':x: You quit!')
 
-    @discord.ui.button(label=SnakeButtonLabel.UP, style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(
+        label=SnakeButtonLabel.UP, style=discord.ButtonStyle.primary, row=0
+    )
     async def up(
         self,
         interaction: discord.Interaction,
@@ -486,7 +495,9 @@ class SnakeGameView(discord.ui.View):
     ):
         pass
 
-    @discord.ui.button(label=SnakeButtonLabel.LEFT, style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(
+        label=SnakeButtonLabel.LEFT, style=discord.ButtonStyle.primary, row=1
+    )
     async def left(
         self,
         interaction: discord.Interaction,
@@ -495,7 +506,9 @@ class SnakeGameView(discord.ui.View):
         self._set_opposite_button(SnakeButtonLabel.RIGHT)
         await self.on_button_interaction(interaction, x=-1)
 
-    @discord.ui.button(label=SnakeButtonLabel.DOWN, style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(
+        label=SnakeButtonLabel.DOWN, style=discord.ButtonStyle.primary, row=1
+    )
     async def down(
         self,
         interaction: discord.Interaction,
@@ -504,7 +517,9 @@ class SnakeGameView(discord.ui.View):
         self._set_opposite_button(SnakeButtonLabel.UP)
         await self.on_button_interaction(interaction, y=1)
 
-    @discord.ui.button(label=SnakeButtonLabel.RIGHT, style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(
+        label=SnakeButtonLabel.RIGHT, style=discord.ButtonStyle.primary, row=1
+    )
     async def right(
         self,
         interaction: discord.Interaction,
