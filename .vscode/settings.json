@@ -6,6 +6,7 @@
         "cooldown",
         "cooldowns",
         "dtype",
+        "messageable",
         "mstarted",
         "ndigits",
         "orjson",

@@ -21,7 +21,6 @@ from moist_bot.models import (
 from moist_bot.settings import settings
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -729,11 +728,7 @@ class BlocklistManager:  # noqa: PLR0904
         if not hasattr(ctx.channel, 'permissions_for'):
             return None
 
-        permissions_for = cast(
-            'Callable[[discord.Member], discord.Permissions]',
-            ctx.channel.permissions_for,
-        )
-        return permissions_for(ctx.author)
+        return ctx.channel.permissions_for(ctx.author)
 
     @staticmethod
     def _permissions_for_interaction(
@@ -750,11 +745,7 @@ class BlocklistManager:  # noqa: PLR0904
         if channel is None or not hasattr(channel, 'permissions_for'):
             return None
 
-        permissions_for = cast(
-            'Callable[[discord.Member], discord.Permissions]',
-            channel.permissions_for,
-        )
-        return permissions_for(interaction.user)
+        return channel.permissions_for(interaction.user)
 
     async def check_context(self, ctx: Context) -> BlocklistDecision | None:
         """Check a prefix or hybrid command context against blocklist rules."""
@@ -813,6 +804,7 @@ class BlocklistManager:  # noqa: PLR0904
             if not hasattr(channel, 'send'):
                 return
 
+            # Whatever the hell is going on with pyright here...
             messageable = cast('discord.abc.Messageable', channel)
             await messageable.send(message)
         except discord.HTTPException:
