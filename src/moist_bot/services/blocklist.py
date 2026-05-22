@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import discord
+from sqlalchemy import delete
 from sqlmodel import col, select
 
 from moist_bot.models import (
@@ -15,10 +16,13 @@ from moist_bot.models import (
     ChannelPolicyMode,
     GuildChannelPolicy,
     GuildChannelPolicyChannel,
+    GuildChannelPolicyPermission,
 )
 from moist_bot.settings import settings
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from moist_bot.bot import MoistBot
@@ -26,6 +30,13 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger('discord.' + __name__)
+
+VALID_PERMISSION_NAMES: Final[frozenset[str]] = frozenset(
+    discord.Permissions.VALID_FLAGS
+)
+POLICY_COMMAND_NAMES: Final[frozenset[str]] = frozenset(
+    ('blocklist policy', 'blocklist channel', 'blocklist permission')
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,10 +49,13 @@ class ChannelPolicy:
         Whether the configured channels are ignored, denied, or allowed.
     channel_ids:
         Channel IDs attached to the policy mode.
+    permission_names:
+        Discord permission flag names that may use commands under this policy.
     """
 
     mode: ChannelPolicyMode
     channel_ids: frozenset[int]
+    permission_names: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +74,7 @@ class BlocklistDecision:
     scope: str
 
 
-class BlocklistManager:
+class BlocklistManager:  # noqa: PLR0904
     """Manage persistent blocklist state and fast runtime checks.
 
     The database is the source of truth, while the sets in this class are the
@@ -117,10 +131,19 @@ class BlocklistManager:
 
         policies_result = await session.execute(select(GuildChannelPolicy))
         channels_result = await session.execute(select(GuildChannelPolicyChannel))
+        permissions_result = await session.execute(
+            select(GuildChannelPolicyPermission)
+        )
 
         channel_ids_by_guild: dict[int, set[int]] = {}
         for row in channels_result.scalars().all():
             channel_ids_by_guild.setdefault(row.guild_id, set()).add(row.channel_id)
+
+        permission_names_by_guild: dict[int, set[str]] = {}
+        for row in permissions_result.scalars().all():
+            permission_names_by_guild.setdefault(row.guild_id, set()).add(
+                row.permission_name
+            )
 
         policies: dict[int, ChannelPolicy] = {}
         for policy in policies_result.scalars().all():
@@ -128,6 +151,9 @@ class BlocklistManager:
             policies[policy.guild_id] = ChannelPolicy(
                 mode=mode,
                 channel_ids=frozenset(channel_ids_by_guild.get(policy.guild_id, ())),
+                permission_names=frozenset(
+                    permission_names_by_guild.get(policy.guild_id, ())
+                ),
             )
         return policies
 
@@ -138,7 +164,37 @@ class BlocklistManager:
         try:
             return ChannelPolicyMode(mode)
         except ValueError:
-            return ChannelPolicyMode.OFF
+            return ChannelPolicyMode.LOCKED
+
+    @staticmethod
+    def normalize_permission_name(permission_name: str) -> str:
+        """Return a canonical Discord permission flag name."""
+
+        return permission_name.strip().lower().replace('-', '_').replace(' ', '_')
+
+    @classmethod
+    def validate_permission_name(cls, permission_name: str) -> str:
+        """Return a valid permission flag name or raise ``ValueError``."""
+
+        normalized = cls.normalize_permission_name(permission_name)
+        if normalized not in VALID_PERMISSION_NAMES:
+            raise ValueError(permission_name)
+        return normalized
+
+    @classmethod
+    def validate_permission_names(cls, permission_names: list[str]) -> list[str]:
+        """Return unique valid permission flag names in input order."""
+
+        valid_permissions: list[str] = []
+        seen: set[str] = set()
+        for permission_name in permission_names:
+            normalized = cls.validate_permission_name(permission_name)
+            if normalized in seen:
+                continue
+
+            seen.add(normalized)
+            valid_permissions.append(normalized)
+        return valid_permissions
 
     def _cache_entry(self, entry: BlocklistEntry) -> None:
         """Add a database entry to the in-memory cache."""
@@ -318,9 +374,13 @@ class BlocklistManager:
         channel_ids: frozenset[int] = (
             frozenset() if current is None else current.channel_ids
         )
+        permission_names: frozenset[str] = (
+            frozenset() if current is None else current.permission_names
+        )
         self.channel_policies[guild_id] = ChannelPolicy(
             mode=mode,
             channel_ids=channel_ids,
+            permission_names=permission_names,
         )
 
     async def add_channel(
@@ -359,6 +419,29 @@ class BlocklistManager:
 
         self._cache_policy_channel(guild_id, channel_id, add=True)
         return True
+
+    async def clear_channels(self, *, guild_id: int) -> int:
+        """Remove all channels from a guild channel policy."""
+
+        current = self.get_channel_policy(guild_id)
+        removed_count = len(current.channel_ids)
+        if not removed_count:
+            return 0
+
+        async with self.bot.db_session_maker() as session:
+            await session.execute(
+                delete(GuildChannelPolicyChannel).where(
+                    col(GuildChannelPolicyChannel.guild_id) == guild_id
+                )
+            )
+            await session.commit()
+
+        self.channel_policies[guild_id] = ChannelPolicy(
+            mode=current.mode,
+            channel_ids=frozenset(),
+            permission_names=current.permission_names,
+        )
+        return removed_count
 
     async def _ensure_channel_policy(
         self,
@@ -413,7 +496,11 @@ class BlocklistManager:
 
         current = self.channel_policies.get(guild_id)
         if current is None:
-            current = ChannelPolicy(mode=ChannelPolicyMode.OFF, channel_ids=frozenset())
+            current = ChannelPolicy(
+                mode=ChannelPolicyMode.LOCKED,
+                channel_ids=frozenset(),
+                permission_names=frozenset(),
+            )
 
         channel_ids = set(current.channel_ids)
         if add:
@@ -424,14 +511,127 @@ class BlocklistManager:
         self.channel_policies[guild_id] = ChannelPolicy(
             mode=current.mode,
             channel_ids=frozenset(channel_ids),
+            permission_names=current.permission_names,
+        )
+
+    async def add_permission(
+        self,
+        *,
+        guild_id: int,
+        permission_name: str,
+    ) -> bool:
+        """Add a permission flag to a guild channel policy."""
+
+        permission_name = self.validate_permission_name(permission_name)
+        async with self.bot.db_session_maker() as session:
+            await self._ensure_channel_policy(session, guild_id)
+            result = await session.execute(
+                select(GuildChannelPolicyPermission).where(
+                    col(GuildChannelPolicyPermission.guild_id) == guild_id,
+                    col(GuildChannelPolicyPermission.permission_name)
+                    == permission_name,
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing is not None:
+                return False
+
+            session.add(
+                GuildChannelPolicyPermission(
+                    guild_id=guild_id,
+                    permission_name=permission_name,
+                )
+            )
+            await session.commit()
+
+        self._cache_policy_permission(guild_id, permission_name, add=True)
+        return True
+
+    async def remove_permission(
+        self,
+        *,
+        guild_id: int,
+        permission_name: str,
+    ) -> bool:
+        """Remove a permission flag from a guild channel policy."""
+
+        permission_name = self.validate_permission_name(permission_name)
+        async with self.bot.db_session_maker() as session:
+            result = await session.execute(
+                select(GuildChannelPolicyPermission).where(
+                    col(GuildChannelPolicyPermission.guild_id) == guild_id,
+                    col(GuildChannelPolicyPermission.permission_name)
+                    == permission_name,
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing is None:
+                return False
+
+            await session.delete(existing)
+            await session.commit()
+
+        self._cache_policy_permission(guild_id, permission_name, add=False)
+        return True
+
+    async def clear_permissions(self, *, guild_id: int) -> int:
+        """Remove all permission flags from a guild channel policy."""
+
+        current = self.get_channel_policy(guild_id)
+        removed_count = len(current.permission_names)
+        if not removed_count:
+            return 0
+
+        async with self.bot.db_session_maker() as session:
+            await session.execute(
+                delete(GuildChannelPolicyPermission).where(
+                    col(GuildChannelPolicyPermission.guild_id) == guild_id
+                )
+            )
+            await session.commit()
+
+        self.channel_policies[guild_id] = ChannelPolicy(
+            mode=current.mode,
+            channel_ids=current.channel_ids,
+            permission_names=frozenset(),
+        )
+        return removed_count
+
+    def _cache_policy_permission(
+        self, guild_id: int, permission_name: str, *, add: bool
+    ) -> None:
+        """Update one permission flag in the cached policy for a guild."""
+
+        current = self.channel_policies.get(guild_id)
+        if current is None:
+            current = ChannelPolicy(
+                mode=ChannelPolicyMode.LOCKED,
+                channel_ids=frozenset(),
+                permission_names=frozenset(),
+            )
+
+        permission_names = set(current.permission_names)
+        if add:
+            permission_names.add(permission_name)
+        else:
+            permission_names.discard(permission_name)
+
+        self.channel_policies[guild_id] = ChannelPolicy(
+            mode=current.mode,
+            channel_ids=current.channel_ids,
+            permission_names=frozenset(permission_names),
         )
 
     def get_channel_policy(self, guild_id: int) -> ChannelPolicy:
-        """Return the cached policy for a guild, defaulting to no restrictions."""
+        """Return the cached policy for a guild, defaulting to locked."""
 
         return self.channel_policies.get(
             guild_id,
-            ChannelPolicy(mode=ChannelPolicyMode.OFF, channel_ids=frozenset()),
+            ChannelPolicy(
+                mode=ChannelPolicyMode.LOCKED,
+                channel_ids=frozenset(),
+                permission_names=frozenset(),
+            ),
         )
 
     def is_guild_blocklisted(self, guild_id: int) -> bool:
@@ -445,14 +645,15 @@ class BlocklistManager:
         user_id: int,
         guild_id: int | None,
         channel_id: int | None,
-        bypass_guild_rules: bool,
+        user_permissions: discord.Permissions | None,
+        bypass_access_policy: bool,
     ) -> BlocklistDecision | None:
         """Check raw Discord IDs against cached blocklist rules."""
 
         if user_id in self.global_users:
             return BlocklistDecision('User is globally blocklisted.', 'global_user')
 
-        if guild_id is None or bypass_guild_rules:
+        if guild_id is None:
             return None
 
         if guild_id in self.guilds:
@@ -461,24 +662,99 @@ class BlocklistManager:
         if (guild_id, user_id) in self.guild_users:
             return BlocklistDecision('User is blocklisted in this guild.', 'guild_user')
 
-        if channel_id is None:
+        if bypass_access_policy:
             return None
 
         # Channel modes are intentionally evaluated last: user and guild
         # blocklists should win over channel allowlist/denylist configuration.
         policy = self.get_channel_policy(guild_id)
+        if policy.mode == ChannelPolicyMode.LOCKED:
+            return BlocklistDecision('Guild policy is locked.', 'guild_policy_locked')
+
         if (
             policy.mode == ChannelPolicyMode.DENYLIST
+            and channel_id is not None
             and channel_id in policy.channel_ids
         ):
             return BlocklistDecision('Channel is denylisted.', 'channel_denylist')
         if (
             policy.mode == ChannelPolicyMode.ALLOWLIST
-            and channel_id not in policy.channel_ids
+            and (channel_id is None or channel_id not in policy.channel_ids)
         ):
             return BlocklistDecision('Channel is not allowlisted.', 'channel_allowlist')
+        if policy.permission_names and not self.has_any_permission(
+            user_permissions,
+            policy.permission_names,
+        ):
+            return BlocklistDecision(
+                'User is missing a required permission.',
+                'guild_policy_permission',
+            )
 
         return None
+
+    @staticmethod
+    def has_any_permission(
+        permissions: discord.Permissions | None,
+        permission_names: frozenset[str],
+    ) -> bool:
+        """Return whether permissions include any configured policy flag."""
+
+        if permissions is None:
+            return False
+        return any(getattr(permissions, permission_name) for permission_name in permission_names)
+
+    @classmethod
+    def is_policy_command_name(cls, command_name: str | None) -> bool:
+        """Return whether a command belongs to the guild access policy surface."""
+
+        if command_name is None:
+            return False
+        return any(
+            command_name == name or command_name.startswith(f'{name} ')
+            for name in POLICY_COMMAND_NAMES
+        )
+
+    @staticmethod
+    def _can_manage_policy(member: discord.abc.User) -> bool:
+        return (
+            isinstance(member, discord.Member)
+            and member.guild_permissions.manage_guild
+        )
+
+    @staticmethod
+    def _permissions_for_context(ctx: Context) -> discord.Permissions | None:
+        if not isinstance(ctx.author, discord.Member):
+            return None
+        if not hasattr(ctx.channel, 'permissions_for'):
+            return None
+
+        permissions_for = cast(
+            'Callable[[discord.Member], discord.Permissions]',
+            ctx.channel.permissions_for,
+        )
+        return permissions_for(ctx.author)
+
+    @staticmethod
+    def _permissions_for_interaction(
+        interaction: Interaction,
+    ) -> discord.Permissions | None:
+        interaction_permissions = getattr(interaction, 'permissions', None)
+        if isinstance(interaction_permissions, discord.Permissions):
+            return interaction_permissions
+
+        if not isinstance(interaction.user, discord.Member):
+            return None
+
+        channel = interaction.channel
+        if channel is None or not hasattr(channel, 'permissions_for'):
+            return None
+
+        permissions_for = cast(
+            'Callable[[discord.Member], discord.Permissions]',
+            channel.permissions_for,
+        )
+        return permissions_for(interaction.user)
 
     async def check_context(self, ctx: Context) -> BlocklistDecision | None:
         """Check a prefix or hybrid command context against blocklist rules."""
@@ -488,16 +764,18 @@ class BlocklistManager:
 
         guild_id = None if ctx.guild is None else ctx.guild.id
         channel_id = ctx.channel.id
-        bypass_guild_rules = (
-            isinstance(ctx.author, discord.Member)
-            and ctx.author.guild_permissions.manage_guild
+        command_name = None if ctx.command is None else ctx.command.qualified_name
+        bypass_access_policy = (
+            self._can_manage_policy(ctx.author)
+            and self.is_policy_command_name(command_name)
         )
 
         return self.check_ids(
             user_id=ctx.author.id,
             guild_id=guild_id,
             channel_id=channel_id,
-            bypass_guild_rules=bypass_guild_rules,
+            user_permissions=self._permissions_for_context(ctx),
+            bypass_access_policy=bypass_access_policy,
         )
 
     async def check_interaction(
@@ -509,15 +787,19 @@ class BlocklistManager:
             return None
 
         member = interaction.user
-        bypass_guild_rules = (
-            isinstance(member, discord.Member) and member.guild_permissions.manage_guild
+        command = interaction.command
+        command_name = None if command is None else command.qualified_name
+        bypass_access_policy = (
+            self._can_manage_policy(member)
+            and self.is_policy_command_name(command_name)
         )
 
         return self.check_ids(
             user_id=interaction.user.id,
             guild_id=interaction.guild_id,
             channel_id=interaction.channel_id,
-            bypass_guild_rules=bypass_guild_rules,
+            user_permissions=self._permissions_for_interaction(interaction),
+            bypass_access_policy=bypass_access_policy,
         )
 
     async def log(self, message: str) -> None:

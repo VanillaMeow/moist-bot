@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import discord
 from discord.ext import commands
+from jishaku.paginators import PaginatorInterface, WrappedPaginator
 
 from moist_bot.models import (
     BlocklistEntry,
@@ -52,14 +53,6 @@ def format_entry(entry: BlocklistEntry) -> str:
     return f'- {target} ({entry.source}): {reason}'
 
 
-def format_entries(entries: list[BlocklistEntry]) -> str:
-    """Format blocklist entries for a compact command response."""
-
-    if not entries:
-        return 'No blocklist entries found'
-    return '\n'.join(format_entry(entry) for entry in entries)
-
-
 def format_bulk_action(action: str, created: int, updated: int, noun: str) -> str:
     """Format a bulk mutation summary for command output."""
 
@@ -84,6 +77,61 @@ class Blocklist(commands.Cog):
     @property
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{NO ENTRY SIGN}')
+
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        """Leave fully blocklisted guilds and rely on implicit locked policy."""
+
+        if self.bot.blocklist.is_guild_blocklisted(guild.id):
+            log.warning(
+                f'Leaving blocklisted guild {guild} ({guild.id}) after guild join.'
+            )
+            try:
+                await guild.leave()
+            except discord.HTTPException:
+                log.exception(
+                    f'Failed to leave blocklisted guild {guild} ({guild.id}).'
+                )
+            return
+
+        if guild.id not in self.bot.blocklist.channel_policies:
+            log.info(
+                f'Joined guild {guild} ({guild.id}) without saved command policy; '
+                'it is implicitly locked.'
+            )
+
+    async def _send_paginated_lines(
+        self,
+        ctx: Context,
+        *,
+        title: str,
+        lines: list[str],
+        empty: str,
+    ) -> None:
+        if not lines:
+            await ctx.reply(empty)
+            return
+
+        paginator = WrappedPaginator(
+            prefix='',
+            suffix='',
+            max_size=1900,
+            force_wrap=True,
+        )
+        paginator.add_line(title)
+        for line in lines:
+            if not line:
+                paginator.add_line(empty=True)
+                continue
+            paginator.add_line(line)
+
+        interface = PaginatorInterface(ctx.bot, paginator, owner=ctx.author)
+        await interface.send_to(ctx)
+
+    def _validate_permissions(self, permissions: list[str]) -> list[str] | None:
+        if not permissions:
+            return None
+        return self.bot.blocklist.validate_permission_names(permissions)
 
     @commands.group(name='blocklist', hidden=True)
     async def blocklist(self, ctx: Context) -> None:
@@ -155,7 +203,12 @@ class Blocklist(commands.Cog):
         entries = await self.bot.blocklist.entries_for_scope(
             BlocklistScope.GLOBAL_USER
         )
-        await ctx.reply(format_entries(entries))
+        await self._send_paginated_lines(
+            ctx,
+            title='Global user blocklists',
+            lines=[format_entry(entry) for entry in entries],
+            empty='No blocklist entries found',
+        )
 
     @blocklist.group(name='guild')
     @commands.is_owner()
@@ -240,7 +293,12 @@ class Blocklist(commands.Cog):
     async def blocklist_guild_list(self, ctx: Context) -> None:
         """List whole-guild blocklists."""
         entries = await self.bot.blocklist.entries_for_scope(BlocklistScope.GUILD)
-        await ctx.reply(format_entries(entries))
+        await self._send_paginated_lines(
+            ctx,
+            title='Guild blocklists',
+            lines=[format_entry(entry) for entry in entries],
+            empty='No blocklist entries found',
+        )
 
     @blocklist.group(name='member')
     @commands.guild_only()
@@ -310,7 +368,129 @@ class Blocklist(commands.Cog):
             BlocklistScope.GUILD_USER,
             guild_id=ctx.guild.id,
         )
-        await ctx.reply(format_entries(entries))
+        await self._send_paginated_lines(
+            ctx,
+            title=f'Member blocklists for guild `{ctx.guild.id}`',
+            lines=[format_entry(entry) for entry in entries],
+            empty='No blocklist entries found',
+        )
+
+    @blocklist.command(name='policy')
+    @commands.guild_only()
+    @commands.check(can_manage_guild_blocklist)
+    async def blocklist_policy(
+        self,
+        ctx: GuildContext,
+        mode: ChannelPolicyMode,
+    ) -> None:
+        """Set this guild's command access policy mode."""
+        await self.bot.blocklist.set_channel_mode(
+            guild_id=ctx.guild.id,
+            mode=mode,
+            updated_by_id=ctx.author.id,
+        )
+        await ctx.reply(f':white_check_mark: Command policy mode set to `{mode}`')
+
+    @blocklist.group(name='permission')
+    @commands.guild_only()
+    @commands.check(can_manage_guild_blocklist)
+    async def blocklist_permission(self, ctx: GuildContext) -> None:
+        """Manage command policy permissions for this guild."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+
+    @blocklist_permission.command(name='add')
+    async def blocklist_permission_add(
+        self,
+        ctx: GuildContext,
+        permissions: list[str],
+    ) -> None:
+        """Add permissions to this guild's command policy."""
+        try:
+            permission_names = self._validate_permissions(list(permissions))
+        except ValueError as e:
+            await ctx.reply(f':warning: Unknown Discord permission `{e.args[0]}`')
+            return
+
+        if permission_names is None:
+            await ctx.reply(
+                ':warning: Usage: `blocklist permission add <permissions...>`'
+            )
+            return
+
+        created_count = 0
+        existing_count = 0
+        for permission_name in permission_names:
+            created = await self.bot.blocklist.add_permission(
+                guild_id=ctx.guild.id,
+                permission_name=permission_name,
+            )
+            if created:
+                created_count += 1
+            else:
+                existing_count += 1
+
+        await ctx.reply(
+            ':white_check_mark: '
+            f'Policy added {created_count} and skipped {existing_count} permissions'
+        )
+
+    @blocklist_permission.command(name='remove')
+    async def blocklist_permission_remove(
+        self,
+        ctx: GuildContext,
+        permissions: list[str],
+    ) -> None:
+        """Remove permissions from this guild's command policy."""
+        try:
+            permission_names = self._validate_permissions(list(permissions))
+        except ValueError as e:
+            await ctx.reply(f':warning: Unknown Discord permission `{e.args[0]}`')
+            return
+
+        if permission_names is None:
+            await ctx.reply(
+                ':warning: Usage: `blocklist permission remove <permissions...>`'
+            )
+            return
+
+        removed_count = 0
+        missing_count = 0
+        for permission_name in permission_names:
+            removed = await self.bot.blocklist.remove_permission(
+                guild_id=ctx.guild.id,
+                permission_name=permission_name,
+            )
+            if removed:
+                removed_count += 1
+            else:
+                missing_count += 1
+
+        await ctx.reply(
+            ':white_check_mark: '
+            f'Policy removed {removed_count} and skipped {missing_count} permissions'
+        )
+
+    @blocklist_permission.command(name='list')
+    async def blocklist_permission_list(self, ctx: GuildContext) -> None:
+        """List this guild's command policy permissions."""
+        permission_names = sorted(
+            self.bot.blocklist.get_channel_policy(ctx.guild.id).permission_names
+        )
+        await self._send_paginated_lines(
+            ctx,
+            title=f'Command policy permissions for guild `{ctx.guild.id}`',
+            lines=[f'- `{permission_name}`' for permission_name in permission_names],
+            empty='No permissions configured',
+        )
+
+    @blocklist_permission.command(name='clear')
+    async def blocklist_permission_clear(self, ctx: GuildContext) -> None:
+        """Remove all permissions from this guild's command policy."""
+        removed_count = await self.bot.blocklist.clear_permissions(
+            guild_id=ctx.guild.id
+        )
+        await ctx.reply(f':white_check_mark: Removed {removed_count} policy permissions')
 
     @blocklist.group(name='channel')
     @commands.guild_only()
@@ -319,20 +499,6 @@ class Blocklist(commands.Cog):
         """Manage channel command policy for this guild."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
-
-    @blocklist_channel.command(name='mode')
-    async def blocklist_channel_mode(
-        self,
-        ctx: GuildContext,
-        mode: ChannelPolicyMode,
-    ) -> None:
-        """Set this guild's channel policy mode."""
-        await self.bot.blocklist.set_channel_mode(
-            guild_id=ctx.guild.id,
-            mode=mode,
-            updated_by_id=ctx.author.id,
-        )
-        await ctx.reply(f':white_check_mark: Channel blocklist mode set to `{mode}`')
 
     @blocklist_channel.command(name='add')
     async def blocklist_channel_add(
@@ -359,7 +525,7 @@ class Blocklist(commands.Cog):
 
         await ctx.reply(
             ':white_check_mark: '
-            f'Channel policy added {created_count} and skipped {existing_count} channels'
+            f'Policy added {created_count} and skipped {existing_count} channels'
         )
 
     @blocklist_channel.command(name='remove')
@@ -378,28 +544,42 @@ class Blocklist(commands.Cog):
             await ctx.reply(':warning: That channel is not configured')
             return
 
-        await ctx.reply(f':white_check_mark: Removed <#{channel_id}> from channel policy')
+        await ctx.reply(f':white_check_mark: Removed <#{channel_id}> from policy')
 
     @blocklist_channel.command(name='list')
     async def blocklist_channel_list(self, ctx: GuildContext) -> None:
         """List this guild's channel policy."""
         policy = self.bot.blocklist.get_channel_policy(ctx.guild.id)
-        channel_ids = sorted(policy.channel_ids)
-        channels = '\n'.join(f'- <#{channel_id}> (`{channel_id}`)' for channel_id in channel_ids)
-        if not channels:
-            channels = 'No channels configured'
+        channel_lines = [
+            f'- <#{channel_id}> (`{channel_id}`)'
+            for channel_id in sorted(policy.channel_ids)
+        ]
+        permission_lines = [
+            f'- `{permission_name}`'
+            for permission_name in sorted(policy.permission_names)
+        ]
 
-        await ctx.reply(f'Current mode: `{policy.mode}`\n{channels}')
+        lines = [
+            f'Current mode: `{policy.mode}`',
+            '',
+            'Channels:',
+            *(channel_lines or ['No channels configured']),
+            '',
+            'Permissions:',
+            *(permission_lines or ['No permissions configured']),
+        ]
+        await self._send_paginated_lines(
+            ctx,
+            title=f'Command policy for guild `{ctx.guild.id}`',
+            lines=lines,
+            empty='No channel policy configured',
+        )
 
     @blocklist_channel.command(name='clear')
     async def blocklist_channel_clear(self, ctx: GuildContext) -> None:
-        """Disable this guild's channel policy."""
-        await self.bot.blocklist.set_channel_mode(
-            guild_id=ctx.guild.id,
-            mode=ChannelPolicyMode.OFF,
-            updated_by_id=ctx.author.id,
-        )
-        await ctx.reply(':white_check_mark: Channel policy disabled')
+        """Remove all channels from this guild's command policy."""
+        removed_count = await self.bot.blocklist.clear_channels(guild_id=ctx.guild.id)
+        await ctx.reply(f':white_check_mark: Removed {removed_count} policy channels')
 
 
 async def setup(bot: MoistBot) -> None:

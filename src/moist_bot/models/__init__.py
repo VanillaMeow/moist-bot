@@ -6,6 +6,7 @@ from .blocklist import (
     ChannelPolicyMode,
     GuildChannelPolicy,
     GuildChannelPolicyChannel,
+    GuildChannelPolicyPermission,
 )
 from .command_usage import (
     CommandStatsScope,
@@ -34,4 +35,5 @@ __all__ = (
     'CommandUsageUserCount',
     'GuildChannelPolicy',
     'GuildChannelPolicyChannel',
+    'GuildChannelPolicyPermission',
 )

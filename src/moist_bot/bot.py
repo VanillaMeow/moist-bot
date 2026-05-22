@@ -208,18 +208,6 @@ class MoistBot(commands.Bot):
 
         log.info('Bot closed.')
 
-    async def on_guild_join(self, guild: discord.Guild) -> None:
-        """Leave guilds that are blocklisted for full membership denial."""
-
-        if not self.blocklist.is_guild_blocklisted(guild.id):
-            return
-
-        log.warning(f'Leaving blocklisted guild {guild} ({guild.id}) after guild join.')
-        try:
-            await guild.leave()
-        except discord.HTTPException:
-            log.exception(f'Failed to leave blocklisted guild {guild} ({guild.id}).')
-
     async def on_ready(self) -> None:
         guilds = len(self.guilds)
         await self.change_presence(

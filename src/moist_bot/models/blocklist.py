@@ -30,6 +30,7 @@ class BlocklistSource(StrEnum):
 class ChannelPolicyMode(StrEnum):
     """Guild channel policy modes."""
 
+    LOCKED = 'locked'
     OFF = 'off'
     DENYLIST = 'denylist'
     ALLOWLIST = 'allowlist'
@@ -69,7 +70,7 @@ class GuildChannelPolicy(SQLModel, table=True):
     __tablename__: ClassVar[str] = 'guild_channel_policies'
 
     guild_id: int = Field(sa_type=BigInteger, primary_key=True)
-    mode: str = Field(default=ChannelPolicyMode.OFF, max_length=30)
+    mode: str = Field(default=ChannelPolicyMode.LOCKED, max_length=30)
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True), nullable=False),
@@ -92,3 +93,20 @@ class GuildChannelPolicyChannel(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     guild_id: int = Field(sa_type=BigInteger, index=True)
     channel_id: int = Field(sa_type=BigInteger, index=True)
+
+
+class GuildChannelPolicyPermission(SQLModel, table=True):
+    """Permission flag attached to a guild command policy."""
+
+    __tablename__: ClassVar[str] = 'guild_channel_policy_permissions'
+    __table_args__: ClassVar = (
+        UniqueConstraint(
+            'guild_id',
+            'permission_name',
+            name='uq_guild_channel_policy_permissions_guild_permission',
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    guild_id: int = Field(sa_type=BigInteger, index=True)
+    permission_name: str = Field(max_length=50, index=True)
