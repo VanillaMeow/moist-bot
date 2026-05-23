@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import aiohttp
 import discord
@@ -76,6 +76,7 @@ class MoistBot(commands.Bot):
         self.started_at: datetime = DATETIME_NEVER
         self.cooldowns: dict[tuple[int, str], datetime] = {}
         self.synced: bool = True
+        self.is_shutting_down: bool = False
 
         # Database
         self.db_engine = create_engine()
@@ -123,10 +124,12 @@ class MoistBot(commands.Bot):
     async def can_run(  # type: ignore[reportIncompatibleMethodOverride]
         self, ctx: Context, /, *, call_once: bool = False
     ) -> bool:
+        if self.is_shutting_down:
+            return False
 
         # No cooldown for bot owners
-        command = ctx.command
-        if not call_once and command is not None and await self.is_owner(ctx.author):
+        command = cast('commands.Command[Any, ..., Any]', ctx.command)
+        if not call_once and await self.is_owner(ctx.author):
             command.reset_cooldown(ctx)
 
         return await super().can_run(ctx, call_once=call_once)
@@ -142,7 +145,7 @@ class MoistBot(commands.Bot):
             return
 
         log.debug(
-            f"Command in guild '{ctx.guild}', by {ctx.author}, with command '{ctx.command}'\n"
+            f"Command in guild '{ctx.guild}', by {ctx.author}, with command '{ctx.command}'"
         )
 
         if not await self.is_owner(ctx.author):
@@ -154,6 +157,9 @@ class MoistBot(commands.Bot):
 
             if await self._handle_spamming(ctx):
                 return
+
+        if self.is_shutting_down:
+            return
 
         await self.invoke(ctx)
 
@@ -199,15 +205,17 @@ class MoistBot(commands.Bot):
         await super().start(token=token, reconnect=reconnect)
 
     async def close(self) -> None:
-        await super().close()
-
-        if 'executor' in self.__dict__:
-            self.executor.shutdown()
+        self.is_shutting_down = True
 
         if 'session' in self.__dict__ and not self.session.closed:
             await self.session.close()
 
         await self.db_engine.dispose()
+
+        if 'executor' in self.__dict__:
+            self.executor.shutdown()
+
+        await super().close()
 
         log.info('Bot closed.')
 
