@@ -86,9 +86,9 @@ class HoneypotIncident(SQLModel, table=True):
     content_excerpt: str | None = Field(default=None, max_length=500)
     attachment_count: int = Field(default=0)
     trigger_count: int = Field(default=1)
-    deleted_message_count: int = Field(default=0)
-    kicked: bool = Field(default=False, index=True)
-    kick_error: str | None = Field(default=None, max_length=500)
+    delete_message_seconds: int = Field(default=0)
+    softbanned: bool = Field(default=False, index=True)
+    softban_error: str | None = Field(default=None, max_length=500)
     log_sent: bool = Field(default=False, index=True)
     log_error: str | None = Field(default=None, max_length=500)
 

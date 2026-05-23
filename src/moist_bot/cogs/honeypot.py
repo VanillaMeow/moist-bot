@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
@@ -13,7 +12,6 @@ from moist_bot.models import HoneypotIncident
 from moist_bot.utils import formats
 from moist_bot.utils.converters import normalize_datetime, shorten
 from moist_bot.utils.formats import plural
-from moist_bot.utils.message_purge import ChannelPurger
 from moist_bot.utils.paginator import RoboPages
 
 if TYPE_CHECKING:
@@ -32,9 +30,8 @@ CONTENT_EXCERPT_WIDTH = 500
 INCIDENT_CONTENT_WIDTH = 36
 INCIDENT_PAGE_SIZE = 8
 INCIDENT_PAGE_SIZE_MAX = 15
-KICK_REASON = 'Triggered honeypot channel.'
-MESSAGE_DELETE_LOOKBACK = datetime.timedelta(hours=24)
-MESSAGE_DELETE_LIMIT = 2000
+SOFTBAN_REASON = 'Triggered honeypot channel.'
+SOFTBAN_DELETE_MESSAGE_SECONDS = 5 * 60
 
 
 async def can_manage_honeypot(ctx: GuildContext) -> bool:
@@ -78,7 +75,7 @@ def format_incident_table(
 
     table = formats.TabularData()
 
-    columns = ['#', 'Triggered', 'Kick', 'Deleted', 'Count']
+    columns = ['#', 'Triggered', 'Softban', 'Del Sec', 'Count']
     if include_user:
         columns.append('User')
     columns.append('Content')
@@ -94,8 +91,8 @@ def format_incident_table(
         row = [
             str(index),
             triggered,
-            'yes' if incident.kicked else 'no',
-            str(incident.deleted_message_count),
+            'yes' if incident.softbanned else 'no',
+            str(incident.delete_message_seconds),
             str(incident.trigger_count),
         ]
         if include_user:
@@ -239,11 +236,12 @@ class Honeypot(commands.Cog):
             raise commands.NoPrivateMessage
         return await can_manage_honeypot(ctx)
 
-    def _is_exempt(self, member: discord.Member) -> bool:
+    async def _is_exempt(self, member: discord.Member) -> bool:
         """Return whether a member should bypass automatic honeypot action."""
 
         return (
-            member.guild_permissions.administrator
+            await self.bot.is_owner(member)
+            or member.guild_permissions.administrator
             or member.guild_permissions.manage_guild
         )
 
@@ -256,33 +254,29 @@ class Honeypot(commands.Cog):
             return None
         return shorten(content, CONTENT_EXCERPT_WIDTH)
 
-    async def _delete_recent_messages(
-        self,
-        message: discord.Message,
-        member: discord.Member,
-    ) -> int:
-        """Deletes recent honeypot-channel messages from the triggering member."""
-
-        after = discord.utils.utcnow() - MESSAGE_DELETE_LOOKBACK
-        purger = ChannelPurger(message.channel, after=after)
-        deleted = await purger.purge(
-            MESSAGE_DELETE_LIMIT,
-            check=lambda candidate: candidate.author.id == member.id,
-        )
-        return len(deleted)
-
-    async def _kick_member(self, member: discord.Member) -> tuple[bool, str | None]:
-        """Kick a member and return the result plus any Discord error."""
+    async def _softban_member(self, member: discord.Member) -> tuple[bool, str | None]:
+        """Ban and unban a member to remove recent messages."""
 
         try:
-            # await member.kick(reason=KICK_REASON)
-            pass
+            await member.ban(
+                reason=SOFTBAN_REASON,
+                delete_message_seconds=SOFTBAN_DELETE_MESSAGE_SECONDS,
+            )
         except discord.HTTPException as e:
             log.warning(
-                f'Failed to kick honeypot user {member} ({member.id}) '
+                f'Failed to ban honeypot user {member} ({member.id}) '
                 f'in guild {member.guild} ({member.guild.id}): {e}'
             )
-            return False, shorten(str(e), CONTENT_EXCERPT_WIDTH)
+            return False, shorten(f'Ban failed: {e}', CONTENT_EXCERPT_WIDTH)
+
+        try:
+            await member.unban(reason=SOFTBAN_REASON)
+        except discord.HTTPException as e:
+            log.warning(
+                f'Failed to unban honeypot user {member} ({member.id}) '
+                f'in guild {member.guild} ({member.guild.id}): {e}'
+            )
+            return False, shorten(f'Unban failed: {e}', CONTENT_EXCERPT_WIDTH)
 
         return True, None
 
@@ -306,26 +300,28 @@ class Honeypot(commands.Cog):
             return False, 'Configured log channel cannot receive messages.'
         channel = cast('discord.abc.Messageable', channel)
 
-        embed = (
-            discord.Embed(
-                title=f'Honeypot Triggered - {member.mention}',
-                colour=discord.Colour.red(),
-                timestamp=incident.triggered_at,
-                description=incident.content_excerpt
-            )
-            .set_footer(text=f'Total Triggers: {incident.trigger_count}')
-            .add_field(
-                name='Deleted Messages',
-                value=str(incident.deleted_message_count),
-            )
-            .add_field(name='Attachments', value=str(incident.attachment_count))
-        )
+        embed = discord.Embed(
+            title='\N{HONEY POT} Honeypot Triggered',
+            colour=discord.Colour.red(),
+            timestamp=incident.triggered_at,
+            description=incident.content_excerpt,
+        ).set_footer(text=f'{plural(incident.trigger_count):trigger}')
 
-        if incident.kick_error is not None:
-            embed.add_field(name='Kick Error', value=incident.kick_error, inline=False)
+        if incident.attachment_count > 0:
+            embed.add_field(
+                name='Attachments',
+                value=str(incident.attachment_count),
+            )
+
+        if incident.softban_error is not None:
+            embed.add_field(
+                name='Softban Error',
+                value=incident.softban_error,
+                inline=False,
+            )
 
         try:
-            await channel.send(embed=embed)
+            await channel.send(content=member.mention, embed=embed)
         except discord.HTTPException as e:
             log.warning(f'Failed to send log embed: {e}')
             return False, shorten(str(e), CONTENT_EXCERPT_WIDTH)
@@ -347,9 +343,8 @@ class Honeypot(commands.Cog):
     ) -> None:
         """Run the full softban flow for a honeypot trigger."""
 
-        # Delete first while the member object still belongs to the guild
-        deleted_count = await self._delete_recent_messages(message, member)
-        kicked, kick_error = await self._kick_member(member)
+        # Ban deletion is safer than manual purge because Discord handles scope
+        softbanned, softban_error = await self._softban_member(member)
 
         # Store the incident before logging so the embed can show trigger count
         incident = await self.bot.honeypot.create_incident(
@@ -359,9 +354,9 @@ class Honeypot(commands.Cog):
             message_created_at=message.created_at,
             content_excerpt=self._content_excerpt(message),
             attachment_count=len(message.attachments),
-            deleted_message_count=deleted_count,
-            kicked=kicked,
-            kick_error=kick_error,
+            delete_message_seconds=SOFTBAN_DELETE_MESSAGE_SECONDS,
+            softbanned=softbanned,
+            softban_error=softban_error,
         )
 
         log_sent, log_error = await self._send_log_embed(
@@ -379,20 +374,22 @@ class Honeypot(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         """Handle messages sent to configured honeypot channels."""
-
-        if message.guild is None:
-            return
-        if message.author.bot or message.webhook_id is not None:
+        if (
+            message.guild is None
+            or message.author.bot
+            or message.webhook_id is not None
+        ):
             return
 
         config = self.bot.honeypot.get_config(message.guild.id)
-        if config is None or message.channel.id != config.channel_id:
-            return
-        if not config.enabled:
-            return
-        if not isinstance(message.author, discord.Member):
-            return
-        if await self.bot.is_owner(message.author) or self._is_exempt(message.author):
+
+        if (
+            config is None
+            or message.channel.id != config.channel_id
+            or not config.enabled
+            or not isinstance(message.author, discord.Member)
+            or await self._is_exempt(message.author)
+        ):
             return
 
         # Only non-exempt human members reaching this point trigger the softban
@@ -429,17 +426,11 @@ class Honeypot(commands.Cog):
             updated_by_id=ctx.author.id,
         )
 
+        # Make warnings
         warnings: list[str] = []
-        honeypot_perms = honeypot_channel.permissions_for(ctx.me)
         log_perms = log_channel.permissions_for(ctx.me)
-        if not ctx.me.guild_permissions.kick_members:
-            warnings.append('I am missing **Kick Members**.')
-        if not honeypot_perms.manage_messages:
-            warnings.append(f'I cannot delete messages in {honeypot_channel.mention}.')
-        if not honeypot_perms.read_message_history:
-            warnings.append(
-                f'I cannot read message history in {honeypot_channel.mention}.'
-            )
+        if not ctx.me.guild_permissions.ban_members:
+            warnings.append('I am missing **Ban Members**.')
         if not log_perms.send_messages:
             warnings.append(f'I cannot send messages in {log_channel.mention}.')
         if not log_perms.embed_links:
@@ -454,6 +445,8 @@ class Honeypot(commands.Cog):
         if warnings:
             lines.append('')
             lines.extend(f':warning: {warning}' for warning in warnings)
+
+        # Finally, send the reply
         await ctx.reply('\n'.join(lines))
 
     @honeypot.command(name='disable')

@@ -139,9 +139,9 @@ class HoneypotManager:
         message_created_at: datetime,
         content_excerpt: str | None,
         attachment_count: int,
-        deleted_message_count: int,
-        kicked: bool,
-        kick_error: str | None,
+        delete_message_seconds: int,
+        softbanned: bool,
+        softban_error: str | None,
     ) -> HoneypotIncident:
         """Create one incident row and return it with the updated trigger count."""
 
@@ -164,9 +164,9 @@ class HoneypotManager:
                 content_excerpt=content_excerpt,
                 attachment_count=attachment_count,
                 trigger_count=trigger_count,
-                deleted_message_count=deleted_message_count,
-                kicked=kicked,
-                kick_error=kick_error,
+                delete_message_seconds=delete_message_seconds,
+                softbanned=softbanned,
+                softban_error=softban_error,
             )
             session.add(incident)
             await session.commit()
