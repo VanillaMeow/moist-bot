@@ -71,6 +71,15 @@ class HoneypotManager:
 
         return self.configs.get(guild_id)
 
+    async def incident_count_for_guild(self, *, guild_id: int) -> int:
+        """Return the total number of honeypot incidents for a guild."""
+
+        async with self.bot.db_session_maker() as session:
+            return await HoneypotIncident.history_count(
+                session,
+                criteria=(col(HoneypotIncident.guild_id) == guild_id,),
+            )
+
     async def set_config(
         self,
         *,

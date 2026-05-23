@@ -374,6 +374,8 @@ class Honeypot(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         """Handle messages sent to configured honeypot channels."""
+
+        # Early reject conditions
         if (
             message.guild is None
             or message.author.bot
@@ -381,8 +383,8 @@ class Honeypot(commands.Cog):
         ):
             return
 
+        # Config reject conditions
         config = self.bot.honeypot.get_config(message.guild.id)
-
         if (
             config is None
             or message.channel.id != config.channel_id
@@ -477,14 +479,16 @@ class Honeypot(commands.Cog):
             return
 
         state = 'enabled' if config.enabled else 'disabled'
+        count = await self.bot.honeypot.incident_count_for_guild(guild_id=ctx.guild.id)
         await ctx.reply(
             f'Honeypot is **{state}**.\n'
-            f'Honeypot: <#{config.channel_id}>'
-            f'Logs: <#{config.log_channel_id}>'
+            f'Honeypot: <#{config.channel_id}>\n'
+            f'Logs: <#{config.log_channel_id}>\n'
+            f'Total incidents: `{count}`'
         )
 
-    @honeypot.command(name='incidents')
-    async def honeypot_incidents(
+    @honeypot.command(name='history', aliases=['logs', 'incidents'])
+    async def honeypot_history(
         self,
         ctx: GuildContext,
         user: discord.Member | None = None,
@@ -497,6 +501,7 @@ class Honeypot(commands.Cog):
         criteria = [col(HoneypotIncident.guild_id) == ctx.guild.id]
         title = 'Honeypot Incidents'
         include_user = True
+
         if user is not None:
             criteria.append(col(HoneypotIncident.user_id) == user.id)
             title = f'Honeypot Incidents for {user}'
