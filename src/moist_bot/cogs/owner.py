@@ -52,7 +52,7 @@ class StickerFlags(commands.FlagConverter, prefix='--', delimiter=' ', case_inse
 
 
 class OwnerOnly(commands.Cog):
-    """Debug commands that only the bot owner can use"""
+    """Debug commands that only the bot owner can use."""
 
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
