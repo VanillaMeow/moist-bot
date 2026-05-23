@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 
-BOT_PREFIXES = ('water ', 'Water ')
+BOT_PREFIXES = ('water ', 'Water ', 'ww ', 'Ww ')
 
 
 def _get_prefix(bot: MoistBot, message: Message) -> list[str]:
@@ -63,9 +63,9 @@ class MoistBot(commands.Bot):
             guilds=True,
         )
         super().__init__(
-            allowed_mentions=allowed_mentions,
-            help_attrs={'hidden': True},  # type: ignore[]
             command_prefix=_get_prefix,
+            help_attrs={'hidden': True},  # type: ignore[]
+            allowed_mentions=allowed_mentions,
             enable_debug_events=True,
             case_insensitive=True,
             intents=intents,
