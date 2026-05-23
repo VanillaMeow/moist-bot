@@ -13,7 +13,6 @@ dependencies = [
     "aiohttp>=3.12.14",
     "aiosqlite>=0.17.0",
     "alembic>=1.18.4",
-    "asyncpraw>=7.8.1",
     "charset-normalizer>=3.4.2",
     "colorama>=0.4.6",
     "discord-ext-menus>=1.0.0a31",
@@ -40,7 +39,7 @@ dependencies = [
 
 [tool.uv.sources]
 discord-py = { git = "https://github.com/Rapptz/discord.py", rev = "master" }
-discord-ext-menus = { git = "https://github.com/Rapptz/discord-ext-menus", rev = "fbb8803779373357e274e1540b368365fd9d8074" }
+discord-ext-menus = { git = "https://github.com/Rapptz/discord-ext-menus", rev = "master" }
 jishaku = { git = "https://github.com/scarletcafe/jishaku", rev = "master" }
 
 [project.scripts]
