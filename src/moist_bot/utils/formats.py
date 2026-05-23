@@ -107,3 +107,69 @@ def tick(opt: bool | None, /) -> str:
         None: '<:greyTick:563231201280917524>',
     }
     return lookup.get(opt, '<:redTick:330090723011592193>')
+
+
+def format_process_error(command: str, stdout: str, stderr: str) -> str:
+    """Format a failed subprocess result for Discord.
+
+    Parameters
+    ----------
+    command:
+        The shell-style command display text.
+    stdout:
+        Captured standard output from the process.
+    stderr:
+        Captured standard error from the process.
+
+    Returns
+    -------
+    str
+        A Discord-safe code block containing relevant process output.
+    """
+
+    output = '\n'.join(
+        section
+        for section in (
+            f'$ {command}',
+            f'stdout:\n{stdout.strip()}' if stdout.strip() else '',
+            f'stderr:\n{stderr.strip()}' if stderr.strip() else '',
+        )
+        if section
+    )
+    if len(output) > 1900:
+        output = output[:1875] + '\n... truncated'
+    return f'```sh\n{output}\n```'
+
+
+def format_file_list(files: list[str], *, limit: int = 1500) -> str:
+    """Format a changed-file list without exceeding Discord's message limit.
+
+    Parameters
+    ----------
+    files:
+        Project-relative paths changed by the update.
+    limit:
+        Maximum approximate payload length to include before truncating.
+
+    Returns
+    -------
+    str
+        Markdown lines describing changed files.
+    """
+
+    lines: list[str] = []
+    remaining = 0
+    total = 0
+
+    for file in files:
+        total += 1
+        line = f'- `{file}`'
+        if sum(len(item) + 1 for item in lines) + len(line) > limit:
+            remaining += 1
+            continue
+        lines.append(line)
+
+    if remaining:
+        lines.append(f'- ...and {remaining} more file(s).')
+
+    return '\n'.join(lines) if total else 'None'
