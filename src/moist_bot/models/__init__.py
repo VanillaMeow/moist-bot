@@ -18,6 +18,7 @@ from .command_usage import (
     CommandUsageSummary,
     CommandUsageUserCount,
 )
+from .honeypot import GuildHoneypotConfig, HoneypotIncident
 
 __all__ = (
     'BLOCKLIST_SENTINEL_ID',
@@ -36,4 +37,6 @@ __all__ = (
     'GuildChannelPolicy',
     'GuildChannelPolicyChannel',
     'GuildChannelPolicyPermission',
+    'GuildHoneypotConfig',
+    'HoneypotIncident',
 )

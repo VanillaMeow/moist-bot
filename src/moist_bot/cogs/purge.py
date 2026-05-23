@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime
 import logging
 import operator
 import re
@@ -13,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from moist_bot.utils.formats import plural
+from moist_bot.utils.message_purge import ChannelPurger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -22,90 +22,6 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger('discord.' + __name__)
-
-
-BULK_DELETE_LIMIT = datetime.timedelta(days=14)
-
-
-class ChannelPurger:
-    """Handles message collection and deletion for a guild channel.
-
-    Automatically splits messages by age:
-    - Recent (<14 days): bulk-deleted in chunks of 100
-    - Old (>=14 days): deleted individually with rate-limit spacing
-    """
-
-    def __init__(
-        self,
-        channel: discord.abc.Messageable,
-        *,
-        before: discord.abc.Snowflake | None = None,
-        after: discord.abc.Snowflake | None = None,
-    ) -> None:
-        self.channel = channel
-        self.before = before
-        self.after = after
-        self.deleted: list[discord.Message] = []
-
-    async def _delete_single(self, msg: discord.Message) -> bool:
-        """Remove one message. Returns False on a hard failure (caller should stop)."""
-        try:
-            await msg.delete()
-        except discord.NotFound:
-            pass
-        except discord.HTTPException:
-            return False
-
-        self.deleted.append(msg)
-        return True
-
-    async def _bulk_delete(self, messages: list[discord.Message]) -> None:
-        """Bulk-delete in chunks of 100, falling back to individual deletion."""
-        for i in range(0, len(messages), 100):
-            chunk = messages[i : i + 100]
-            try:
-                if len(chunk) == 1:
-                    await chunk[0].delete()
-                else:
-                    await self.channel.delete_messages(chunk)  # type: ignore[union-attr]
-                self.deleted.extend(chunk)
-            except discord.HTTPException:
-                for msg in chunk:
-                    if not await self._delete_single(msg):
-                        return
-
-    async def purge(
-        self,
-        limit: int,
-        check: Callable[[discord.Message], bool] = lambda _: True,
-    ) -> list[discord.Message]:
-        """Collect and delete up to *limit* messages matching *check*."""
-        now = discord.utils.utcnow()
-        bulk_cutoff = now - BULK_DELETE_LIMIT
-
-        messages: list[discord.Message] = []
-        scan_limit = min(limit * 5, 5000)
-
-        async for message in self.channel.history(
-            limit=scan_limit, before=self.before, after=self.after
-        ):
-            if check(message):
-                messages.append(message)
-                if len(messages) >= limit:
-                    break
-
-        if not messages:
-            return self.deleted
-
-        bulk_msgs = [m for m in messages if m.created_at > bulk_cutoff]
-        old_msgs = [m for m in messages if m.created_at <= bulk_cutoff]
-
-        await self._bulk_delete(bulk_msgs)
-        for msg in old_msgs:
-            if not await self._delete_single(msg):
-                break
-
-        return self.deleted
 
 
 # Flag converters

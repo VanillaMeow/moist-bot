@@ -14,7 +14,7 @@ from discord.ext import commands
 from .constants import COGS_FOLDER_PATH, DATETIME_NEVER, ROOT_PACKAGE
 from .db import create_engine, create_session_maker
 from .models import BlocklistScope, BlocklistSource
-from .services import BlocklistManager
+from .services import BlocklistManager, HoneypotManager
 from .settings import settings
 from .utils.context import Context, MoistCommandTree
 
@@ -43,6 +43,7 @@ class MoistBot(commands.Bot):
     db_engine: AsyncEngine
     db_session_maker: async_sessionmaker[AsyncSession]
     blocklist: BlocklistManager
+    honeypot: HoneypotManager
     spam_control: commands.CooldownMapping[Message]
 
     reminder = None
@@ -82,10 +83,11 @@ class MoistBot(commands.Bot):
 
         # Services
         self.blocklist = BlocklistManager(self)
+        self.honeypot = HoneypotManager(self)
         self.spam_control = commands.CooldownMapping['Message'].from_cooldown(
-            10,
-            12.0,
-            commands.BucketType.user,
+            rate=10,
+            per=12.0,
+            type=commands.BucketType.user,
         )
         self._auto_spam_count: Counter[int] = Counter()
 
@@ -109,6 +111,7 @@ class MoistBot(commands.Bot):
         tasks = [
             asyncio.create_task(self.load_cogs()),
             asyncio.create_task(self.blocklist.load()),
+            asyncio.create_task(self.honeypot.load()),
         ]
         await asyncio.gather(*tasks)
 
