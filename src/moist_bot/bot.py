@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Unpack, cast
 
 import aiohttp
 import discord
@@ -19,21 +19,43 @@ from .settings import settings
 from .utils.context import Context, MoistCommandTree
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from datetime import datetime
 
-    from discord import Message
+    from discord import Message, app_commands
+    from discord.ext.commands.bot import _BotOptions  # type: ignore[]
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
     from .utils.context import Interaction
+
+    class BotOptions(_BotOptions, total=False):
+        command_prefix: Callable[[commands.Bot, Message], list[str]]
+        help_attrs: dict[str, Any]
+        case_insensitive: bool
+        intents: discord.Intents
+        tree_cls: type[app_commands.CommandTree[Any]]
 
 
 log = logging.getLogger('discord.' + __name__)
 
 
 BOT_PREFIXES = ('water ', 'Water ', 'ww ', 'Ww ')
+INTENTS = discord.Intents(
+    emojis_and_stickers=True,
+    message_content=True,
+    reactions=True,
+    webhooks=True,
+    messages=True,
+    invites=True,
+    members=True,
+    guilds=True,
+)
+ALLOWED_MENTIONS = discord.AllowedMentions(
+    everyone=False, roles=False, users=True, replied_user=True
+)
 
 
-def _get_prefix(bot: MoistBot, message: Message) -> list[str]:
+def _get_prefix(bot: commands.Bot, message: Message) -> list[str]:
     return commands.when_mentioned_or(*BOT_PREFIXES)(bot, message)
 
 
@@ -48,29 +70,16 @@ class MoistBot(commands.Bot):
 
     reminder = None
 
-    def __init__(self):
-        allowed_mentions = discord.AllowedMentions(
-            everyone=False, roles=False, users=True, replied_user=True
-        )
-        intents = discord.Intents(
-            emojis_and_stickers=True,
-            message_content=True,
-            reactions=True,
-            webhooks=True,
-            messages=True,
-            invites=True,
-            members=True,
-            guilds=True,
-        )
-        super().__init__(
-            command_prefix=_get_prefix,
-            help_attrs={'hidden': True},  # type: ignore[]
-            allowed_mentions=allowed_mentions,
-            enable_debug_events=True,
-            case_insensitive=True,
-            intents=intents,
-            tree_cls=MoistCommandTree,
-        )
+    def __init__(self, **kwargs: Unpack[BotOptions]):
+        kwargs.setdefault('help_attrs', {'hidden': True})  # type: ignore[]
+        kwargs.setdefault('case_insensitive', True)
+        kwargs.setdefault('allowed_mentions', ALLOWED_MENTIONS)
+        kwargs.setdefault('command_prefix', _get_prefix)
+        kwargs.setdefault('intents', INTENTS)
+        kwargs.setdefault('enable_debug_events', True)
+        kwargs.setdefault('tree_cls', MoistCommandTree)
+
+        super().__init__(**kwargs)
 
         # Meta
         self.started_at: datetime = DATETIME_NEVER
@@ -220,12 +229,6 @@ class MoistBot(commands.Bot):
         log.info('Bot closed.')
 
     async def on_ready(self) -> None:
-        guilds = len(self.guilds)
-        await self.change_presence(
-            status=discord.Status.idle,
-            activity=discord.Game(f'with {guilds} moisturised servers'),
-        )
-
         if self.started_at == DATETIME_NEVER:
             self.started_at = discord.utils.utcnow()
             log.info(f'Logged in as {self.user}')
