@@ -497,7 +497,6 @@ class Honeypot(commands.Cog):
     ) -> None:
         """Show paginated honeypot incidents."""
 
-        # user = users[0] if users else None
         criteria = [col(HoneypotIncident.guild_id) == ctx.guild.id]
         title = 'Honeypot Incidents'
         include_user = True
