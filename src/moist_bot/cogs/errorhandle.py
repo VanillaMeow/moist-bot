@@ -8,17 +8,11 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import discord
-
-# Custom errors
-# fmt: off
-from asyncprawcore.exceptions import AsyncPrawcoreException
 from discord.ext import commands
 
 from moist_bot.utils.formats import human_join
 
 from .mp3 import FileTooBig
-
-# fmt: on
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
@@ -26,6 +20,54 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger('discord.' + __name__)
+
+
+def format_range_error(error: commands.RangeError) -> str:
+    """Format a range validation error for command replies."""
+
+    value = (
+        f'{len(error.value)} characters'
+        if isinstance(error.value, str)
+        else f'`{error.value}`'
+    )
+
+    minimum = error.minimum
+    maximum = error.maximum
+    if minimum is not None and maximum is not None:
+        bounds = f'between `{minimum}` and `{maximum}`'
+    elif minimum is not None:
+        bounds = f'at least `{minimum}`'
+    elif maximum is not None:
+        bounds = f'at most `{maximum}`'
+    else:
+        bounds = 'within the accepted range'
+
+    return f':warning: Value must be {bounds}; received {value}.'
+
+
+async def handle_cooldown_error(
+    ctx: Context, error: commands.CommandOnCooldown
+) -> None:
+    utcnow = discord.utils.utcnow()
+    command_name = ctx.command.qualified_name if ctx.command else 'how'
+    cooldown_key = (ctx.author.id, command_name)
+
+    # Check if an existing cooldown has expired
+    author_cooldown = ctx.bot.cooldowns.get(cooldown_key)
+    if author_cooldown is not None and utcnow < author_cooldown:
+        return
+
+    # Set a new cooldown
+    seconds = error.retry_after
+    tm_in = utcnow + timedelta(seconds=seconds)
+    ctx.bot.cooldowns[cooldown_key] = tm_in
+
+    tm_fmt = discord.utils.format_dt(tm_in, 'R')
+    await ctx.reply(
+        f':warning: You are on cooldown. Try again {tm_fmt}.',
+        delete_after=seconds,
+        ephemeral=True,
+    )
 
 
 class ErrorHandler(commands.Cog):
@@ -66,26 +108,7 @@ class ErrorHandler(commands.Cog):
             return None
 
         if isinstance(error, commands.CommandOnCooldown):
-            utcnow = discord.utils.utcnow()
-            command_name = ctx.command.qualified_name if ctx.command else 'how'
-            cooldown_key = (ctx.author.id, command_name)
-
-            # Check if an existing cooldown has expired
-            author_cooldown = ctx.bot.cooldowns.get(cooldown_key)
-            if author_cooldown is not None and utcnow < author_cooldown:
-                return None
-
-            # Set a new cooldown
-            seconds = error.retry_after
-            tm_in = utcnow + timedelta(seconds=seconds)
-            ctx.bot.cooldowns[cooldown_key] = tm_in
-
-            tm_fmt = discord.utils.format_dt(tm_in, 'R')
-            return await ctx.reply(
-                f':warning: You are on cooldown. Try again {tm_fmt}.',
-                delete_after=seconds,
-                ephemeral=True,
-            )
+            return await handle_cooldown_error(ctx, error)
 
         # elif isinstance(error, commands.DisabledCommand):
         #     await ctx.reply(f':no_entry_sign: `{ctx.command}` has been disabled.', ephemeral=True)
@@ -122,9 +145,12 @@ class ErrorHandler(commands.Cog):
                 ephemeral=True,
             )
 
+        elif isinstance(error, commands.RangeError):
+            return await ctx.reply(format_range_error(error), ephemeral=True)
+
         elif isinstance(error, commands.BadArgument):
-            if str(error):
-                return await ctx.reply(str(error), ephemeral=True)
+            if error_str := str(error):
+                return await ctx.reply(f':warning: {error_str}', ephemeral=True)
 
         elif isinstance(error, commands.NSFWChannelRequired):
             return await ctx.reply(
@@ -132,15 +158,10 @@ class ErrorHandler(commands.Cog):
             )
 
         elif isinstance(error, commands.CheckFailure):
-            if str(error):
-                return await ctx.reply(f':warning: {error!s}', ephemeral=True)
+            if error_str := str(error):
+                return await ctx.reply(f':warning: {error_str}', ephemeral=True)
             return await ctx.reply(
                 ':warning: You are unable to run this command.', ephemeral=True
-            )
-
-        elif isinstance(error, AsyncPrawcoreException):
-            return await ctx.reply(
-                ':anger: I cannot find that subreddit D:', ephemeral=True
             )
 
         else:
