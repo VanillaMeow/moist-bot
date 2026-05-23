@@ -218,13 +218,11 @@ class MoistBot(commands.Bot):
             activity=discord.Game(f'with {guilds} moisturised servers'),
         )
 
-        sep = '-' * 12
-
         if self.started_at == DATETIME_NEVER:
             self.started_at = discord.utils.utcnow()
-            log.info(f'\nLogged in as {self.user}\n{sep}\n')
+            log.info(f'Logged in as {self.user}')
         else:
-            log.info(f'\nRelogged in after disconnect!\n{sep}\n')
+            log.info('Relogged in after disconnect!')
 
         if not self.synced:
             await self.wait_until_ready()
