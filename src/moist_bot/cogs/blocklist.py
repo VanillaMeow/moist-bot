@@ -192,22 +192,20 @@ class Blocklist(commands.Cog):
             user_id=user.id,
         )
         if not removed:
-            await ctx.reply(':warning: That user is not globally blocklisted')
+            await ctx.reply(':warning: That user is not globally blocklisted.')
             return
 
-        await ctx.reply(f':white_check_mark: Removed global blocklist for `{user.id}`')
+        await ctx.reply(f':white_check_mark: Removed global blocklist for `{user.id}`.')
 
     @blocklist_global.command(name='list')
     async def blocklist_global_list(self, ctx: Context) -> None:
         """List global user blocklists."""
-        entries = await self.bot.blocklist.entries_for_scope(
-            BlocklistScope.GLOBAL_USER
-        )
+        entries = await self.bot.blocklist.entries_for_scope(BlocklistScope.GLOBAL_USER)
         await self._send_paginated_lines(
             ctx,
             title='Global user blocklists',
             lines=[format_entry(entry) for entry in entries],
-            empty='No blocklist entries found',
+            empty='No blocklist entries found.',
         )
 
     @blocklist.group(name='guild')
@@ -259,9 +257,7 @@ class Blocklist(commands.Cog):
             except discord.HTTPException:
                 failed_count += 1
                 log.exception(
-                    'Failed to leave blocklisted guild %s (%s).',
-                    guild,
-                    guild.id,
+                    f'Failed to leave blocklisted guild {guild} ({guild.id}).'
                 )
             else:
                 left_count += 1
@@ -297,7 +293,7 @@ class Blocklist(commands.Cog):
             ctx,
             title='Guild blocklists',
             lines=[format_entry(entry) for entry in entries],
-            empty='No blocklist entries found',
+            empty='No blocklist entries found.',
         )
 
     @blocklist.group(name='member')
@@ -356,10 +352,12 @@ class Blocklist(commands.Cog):
             user_id=member.id,
         )
         if not removed:
-            await ctx.reply(':warning: That member is not blocklisted here')
+            await ctx.reply(':warning: That member is not blocklisted here.')
             return
 
-        await ctx.reply(f':white_check_mark: Removed guild blocklist for `{member.id}`')
+        await ctx.reply(
+            f':white_check_mark: Removed guild blocklist for `{member.id}`.'
+        )
 
     @blocklist_member.command(name='list')
     async def blocklist_member_list(self, ctx: GuildContext) -> None:
@@ -372,7 +370,7 @@ class Blocklist(commands.Cog):
             ctx,
             title=f'Member blocklists for guild `{ctx.guild.id}`',
             lines=[format_entry(entry) for entry in entries],
-            empty='No blocklist entries found',
+            empty='No blocklist entries found.',
         )
 
     @blocklist.command(name='policy')
@@ -389,7 +387,7 @@ class Blocklist(commands.Cog):
             mode=mode,
             updated_by_id=ctx.author.id,
         )
-        await ctx.reply(f':white_check_mark: Command policy mode set to `{mode}`')
+        await ctx.reply(f':white_check_mark: Command policy mode set to `{mode}`.')
 
     @blocklist.group(name='permission')
     @commands.guild_only()
@@ -409,7 +407,7 @@ class Blocklist(commands.Cog):
         try:
             permission_names = self._validate_permissions(list(permissions))
         except ValueError as e:
-            await ctx.reply(f':warning: Unknown Discord permission `{e.args[0]}`')
+            await ctx.reply(f':warning: Unknown Discord permission `{e.args[0]}`.')
             return
 
         if permission_names is None:
@@ -432,7 +430,7 @@ class Blocklist(commands.Cog):
 
         await ctx.reply(
             ':white_check_mark: '
-            f'Policy added {created_count} and skipped {existing_count} permissions'
+            f'Policy added {created_count} and skipped {existing_count} permissions.'
         )
 
     @blocklist_permission.command(name='remove')
@@ -445,12 +443,12 @@ class Blocklist(commands.Cog):
         try:
             permission_names = self._validate_permissions(list(permissions))
         except ValueError as e:
-            await ctx.reply(f':warning: Unknown Discord permission `{e.args[0]}`')
+            await ctx.reply(f':warning: Unknown Discord permission `{e.args[0]}`.')
             return
 
         if permission_names is None:
             await ctx.reply(
-                ':warning: Usage: `blocklist permission remove <permissions...>`'
+                ':warning: Usage: `blocklist permission remove <permissions...>`.'
             )
             return
 
@@ -468,7 +466,7 @@ class Blocklist(commands.Cog):
 
         await ctx.reply(
             ':white_check_mark: '
-            f'Policy removed {removed_count} and skipped {missing_count} permissions'
+            f'Policy removed {removed_count} and skipped {missing_count} permissions.'
         )
 
     @blocklist_permission.command(name='list')
@@ -479,9 +477,9 @@ class Blocklist(commands.Cog):
         )
         await self._send_paginated_lines(
             ctx,
-            title=f'Command policy permissions for guild `{ctx.guild.id}`',
+            title=f'Command policy permissions for guild `{ctx.guild.id}`.',
             lines=[f'- `{permission_name}`' for permission_name in permission_names],
-            empty='No permissions configured',
+            empty='No permissions configured.',
         )
 
     @blocklist_permission.command(name='clear')
@@ -490,7 +488,9 @@ class Blocklist(commands.Cog):
         removed_count = await self.bot.blocklist.clear_permissions(
             guild_id=ctx.guild.id
         )
-        await ctx.reply(f':white_check_mark: Removed {removed_count} policy permissions')
+        await ctx.reply(
+            f':white_check_mark: Removed {removed_count} policy permissions.'
+        )
 
     @blocklist.group(name='channel')
     @commands.guild_only()
@@ -525,7 +525,7 @@ class Blocklist(commands.Cog):
 
         await ctx.reply(
             ':white_check_mark: '
-            f'Policy added {created_count} and skipped {existing_count} channels'
+            f'Policy added {created_count} and skipped {existing_count} channels.'
         )
 
     @blocklist_channel.command(name='remove')
@@ -541,10 +541,10 @@ class Blocklist(commands.Cog):
             channel_id=channel_id,
         )
         if not removed:
-            await ctx.reply(':warning: That channel is not configured')
+            await ctx.reply(':warning: That channel is not configured.')
             return
 
-        await ctx.reply(f':white_check_mark: Removed <#{channel_id}> from policy')
+        await ctx.reply(f':white_check_mark: Removed <#{channel_id}> from policy.')
 
     @blocklist_channel.command(name='list')
     async def blocklist_channel_list(self, ctx: GuildContext) -> None:
@@ -560,26 +560,26 @@ class Blocklist(commands.Cog):
         ]
 
         lines = [
-            f'Current mode: `{policy.mode}`',
+            f'Current mode: `{policy.mode}`.',
             '',
             'Channels:',
-            *(channel_lines or ['No channels configured']),
+            *(channel_lines or ['No channels configured.']),
             '',
             'Permissions:',
-            *(permission_lines or ['No permissions configured']),
+            *(permission_lines or ['No permissions configured.']),
         ]
         await self._send_paginated_lines(
             ctx,
             title=f'Command policy for guild `{ctx.guild.id}`',
             lines=lines,
-            empty='No channel policy configured',
+            empty='No channel policy configured.',
         )
 
     @blocklist_channel.command(name='clear')
     async def blocklist_channel_clear(self, ctx: GuildContext) -> None:
         """Remove all channels from this guild's command policy."""
         removed_count = await self.bot.blocklist.clear_channels(guild_id=ctx.guild.id)
-        await ctx.reply(f':white_check_mark: Removed {removed_count} policy channels')
+        await ctx.reply(f':white_check_mark: Removed {removed_count} policy channels.')
 
 
 async def setup(bot: MoistBot) -> None:
