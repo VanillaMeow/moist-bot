@@ -71,21 +71,21 @@ class MoistBot(commands.Bot):
     reminder = None
 
     def __init__(self, **kwargs: Unpack[BotOptions]):
-        kwargs.setdefault('help_attrs', {'hidden': True})  # type: ignore[]
-        kwargs.setdefault('case_insensitive', True)
         kwargs.setdefault('allowed_mentions', ALLOWED_MENTIONS)
+        kwargs.setdefault('help_attrs', {'hidden': True})
         kwargs.setdefault('command_prefix', _get_prefix)
-        kwargs.setdefault('intents', INTENTS)
-        kwargs.setdefault('enable_debug_events', True)
         kwargs.setdefault('tree_cls', MoistCommandTree)
+        kwargs.setdefault('enable_debug_events', True)
+        kwargs.setdefault('case_insensitive', True)
+        kwargs.setdefault('intents', INTENTS)
 
         super().__init__(**kwargs)
 
         # Meta
-        self.started_at: datetime = DATETIME_NEVER
         self.cooldowns: dict[tuple[int, str], datetime] = {}
-        self.synced: bool = True
+        self.started_at: datetime = DATETIME_NEVER
         self.is_shutting_down: bool = False
+        self.synced: bool = True
 
         # Database
         self.db_engine = create_engine()
