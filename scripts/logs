@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -eu
+
+journalctl -u moist-bot -n "${1:-200}" -f -o cat -a
