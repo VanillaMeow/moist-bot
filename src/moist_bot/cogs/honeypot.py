@@ -78,9 +78,7 @@ def format_incident_table(
     rendered_rows: list[list[str]] = []
     for index, incident in enumerate(rows, start=start_index):
         triggered_at = normalize_datetime(incident.triggered_at)
-        triggered = (
-            triggered_at.strftime('%Y-%m-%d %H:%M') if triggered_at else 'Unknown'
-        )
+        triggered = triggered_at.strftime('%Y-%m-%d %H:%M')
         content = incident.content_excerpt or ''
         row = [
             str(index),

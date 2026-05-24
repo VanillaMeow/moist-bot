@@ -30,11 +30,9 @@ def remove_decimal(number: N, ndigits: int = 2) -> N:
     return round(number, ndigits)
 
 
-def normalize_datetime(value: datetime | str | None) -> datetime | None:
+def normalize_datetime(value: datetime | str) -> datetime:
     """Return an aware UTC datetime for values loaded from SQLite."""
 
-    if value is None:
-        return None
     if isinstance(value, str):
         value = datetime.fromisoformat(value)
 

@@ -81,7 +81,7 @@ def format_history_table(
     rendered_rows = []
     for index, command_usage in enumerate(rows, start=start_index):
         used_at = normalize_datetime(command_usage.used_at)
-        used = used_at.strftime('%Y-%m-%d %H:%M') if used_at else 'Unknown'
+        used = used_at.strftime('%Y-%m-%d %H:%M')
         guild_id = command_usage.guild_id
 
         row = [
