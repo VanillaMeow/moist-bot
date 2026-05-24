@@ -924,15 +924,16 @@ class Owner(commands.Cog):
         # Process stats
         process = self.process
         with process.oneshot():
-            cpu_usage = process.cpu_percent() / (psutil.cpu_count() or 1)
+            cpu_count = psutil.cpu_count() or 1
+            cpu_usage = process.cpu_percent() / cpu_count
             thread_count = process.num_threads()
             memory = process.memory_full_info()
-            name = process.name()
+            system_memory = psutil.virtual_memory()
             pid = process.pid
 
             physical_memory = memory.rss / 1024**2
-            virtual_memory = memory.vms / 1024**2
             unique_memory = memory.uss / 1024**2
+            free_memory = system_memory.available / 1024**2
 
         # Message cache stats
         if self.bot._connection.max_messages:  # noqa: SLF001
@@ -985,8 +986,8 @@ class Owner(commands.Cog):
             .add_field(
                 name='Process',
                 value=f'{cpu_usage:.2f}% CPU\n'
-                f'Threads: {thread_count}\n'
-                f'Name: "{name}"\n'
+                f'CPU Threads: {cpu_count}\n'
+                f'Process Threads: {thread_count}\n'
                 f'PID: {pid}',
                 inline=True,
             )
@@ -994,7 +995,7 @@ class Owner(commands.Cog):
                 name='Memory',
                 value=f'Physical: {physical_memory:.2f} MiB\n'
                 f'Unique: {unique_memory:.2f} MiB\n'
-                f'Virtual: {virtual_memory:.2f} MiB',
+                f'Free: {free_memory:.2f} MiB',
                 inline=True,
             )
             .add_field(
@@ -1023,6 +1024,7 @@ class Owner(commands.Cog):
                 f'Platform: {sys.platform}',
                 inline=False,
             )
+            .set_footer(text='Made with ❤️ by Leah 🌸')
         )
 
         description: list[str] = []
