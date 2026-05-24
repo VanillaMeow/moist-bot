@@ -80,7 +80,7 @@ def setup_alembic_logging() -> None:
 def setup_logging() -> Generator[None, Any]:
     root_log = logging.getLogger()
 
-    try:
+    try:  # noqa: PLW0717
         # __enter__
         handler = logging.StreamHandler()
         handler.setFormatter(_ColorFormatter())
