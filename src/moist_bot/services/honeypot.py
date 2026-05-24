@@ -332,12 +332,16 @@ class HoneypotManager:
             return False, 'Configured log channel cannot receive messages.'
         channel = cast('discord.abc.Messageable', channel)
 
-        embed = discord.Embed(
-            title='\N{HONEY POT} Honeypot Triggered',
-            colour=discord.Colour.red(),
-            timestamp=incident.triggered_at,
-            description=incident.content_excerpt,
-        ).set_footer(text=f'{plural(incident.trigger_count):trigger}')
+        embed = (
+            discord.Embed(
+                title='\N{HONEY POT} Honeypot Triggered',
+                colour=discord.Colour.red(),
+                timestamp=incident.triggered_at,
+                description=incident.content_excerpt,
+            )
+            .set_author(name=f'{member.name} ({member.id})', icon_url=member.display_avatar.url)
+            .set_footer(text=f'{plural(incident.trigger_count):trigger} from user')
+        )
 
         if incident.attachment_count > 0:
             embed.add_field(
@@ -353,7 +357,7 @@ class HoneypotManager:
             )
 
         try:
-            await channel.send(content=member.mention, embed=embed)
+            await channel.send(embed=embed)
         except discord.HTTPException as e:
             log.warning(f'Failed to send log embed: {e}')
             return False, shorten(str(e), CONTENT_EXCERPT_WIDTH)
