@@ -11,19 +11,20 @@ if TYPE_CHECKING:
     from moist_bot.bot import BotOptions
 
 
-FLEABOT_EXTENSION_NAMES: Final = (
+FLEABOT_EXTENSIONS: Final = (
     'blocklist',
     'errorhandle',
     'honeypot',
     'meta',
     'owner',
     'stats',
+    'purge',
 )
 
 
 class FleaBot(MoistBot):
     def __init__(self, **kwargs: Unpack[BotOptions]) -> None:
-        super().__init__(extension_names=FLEABOT_EXTENSION_NAMES, **kwargs)
+        super().__init__(startup_extensions=FLEABOT_EXTENSIONS, **kwargs)
 
     async def start(
         self, token: str = settings.fleabot_token, *, reconnect: bool = True

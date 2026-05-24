@@ -20,7 +20,9 @@ class Settings(BaseSettings):
     # Bot
     token: str = ''
     fleabot_token: str = ''
-    bot_fleabot: bool = False
+    use_fleabot: bool = False
+
+    # Discord
     test_guild_id: int = 294545830742982656
     logs_channel_id: int = 1504392687086866473
 
@@ -34,10 +36,6 @@ class Settings(BaseSettings):
     @cached_property
     def logs_channel(self) -> Object:
         return Object(self.logs_channel_id)
-
-    @cached_property
-    def use_fleabot(self) -> bool:
-        return self.bot_fleabot
 
 
 settings = Settings()

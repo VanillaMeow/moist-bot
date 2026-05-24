@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Unpack, cast
 import aiohttp
 import discord
 import discord.utils
+from colorama import Fore
 from discord.ext import commands
 
 from .constants import COGS_FOLDER_PATH, DATETIME_NEVER, ROOT_PACKAGE
@@ -40,6 +41,11 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 
+# Aliases
+CYAN, RESET = Fore.CYAN, Fore.RESET
+
+
+# Bot
 COGS_PACKAGE_NAME = COGS_FOLDER_PATH.name
 BOT_PREFIXES = ('water ', 'Water ', 'ww ', 'Ww ')
 INTENTS = discord.Intents(
@@ -103,7 +109,7 @@ class MoistBot(commands.Bot):
     def __init__(
         self,
         *,
-        extension_names: Iterable[str] | None = None,
+        startup_extensions: Iterable[str] | None = None,
         **kwargs: Unpack[BotOptions],
     ):
         kwargs.setdefault('allowed_mentions', ALLOWED_MENTIONS)
@@ -116,9 +122,7 @@ class MoistBot(commands.Bot):
 
         super().__init__(**kwargs)
 
-        self.extension_names: tuple[str, ...] | None = (
-            None if extension_names is None else tuple(extension_names)
-        )
+        self.startup_extensions: Iterable[str] | None = startup_extensions
 
         # Meta
         self.cooldowns: dict[tuple[int, str], datetime] = {}
@@ -158,15 +162,16 @@ class MoistBot(commands.Bot):
     async def load_cogs(self) -> None:
         extension_names = (
             discover_extension_names()
-            if self.extension_names is None
-            else self.extension_names
+            if self.startup_extensions is None
+            else self.startup_extensions
         )
 
         for name in extension_names:
             try:
                 await self.load_extension(name)
+                log.info(f'Loaded extension {CYAN}{name}{RESET}.')
             except commands.ExtensionError:
-                log.exception(f'Failed to load extension {name}.')
+                log.exception(f'Failed to load extension {CYAN}{name}{RESET}.')
 
     async def setup_hook(self) -> None:
         self.executor = ProcessPoolExecutor(max_workers=4)
@@ -285,9 +290,9 @@ class MoistBot(commands.Bot):
     async def on_ready(self) -> None:
         if self.started_at == DATETIME_NEVER:
             self.started_at = discord.utils.utcnow()
-            log.info(f'Logged in as {self.user}')
+            log.info(f'Connected as {self.user}')
         else:
-            log.info('Relogged in after disconnect!')
+            log.info('Reconnected after disconnect!')
 
         if not self.synced:
             await self.wait_until_ready()
