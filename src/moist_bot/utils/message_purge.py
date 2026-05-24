@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from itertools import batched
 from typing import TYPE_CHECKING
 
 import discord
@@ -25,9 +26,9 @@ class ChannelPurger:
         before: MessageBoundary | None = None,
         after: MessageBoundary | None = None,
     ) -> None:
-        self.channel = channel
-        self.before = before
-        self.after = after
+        self.channel: discord.abc.Messageable = channel
+        self.before: MessageBoundary | None = before
+        self.after: MessageBoundary | None = after
         self.deleted: list[discord.Message] = []
 
     async def _delete_single(self, msg: discord.Message) -> bool:
@@ -46,8 +47,7 @@ class ChannelPurger:
     async def _bulk_delete(self, messages: list[discord.Message]) -> None:
         """Bulk-delete in chunks of 100, falling back to individual deletion."""
 
-        for index in range(0, len(messages), 100):
-            chunk = messages[index : index + 100]
+        for chunk in batched(messages, 100, strict=False):
             try:
                 if len(chunk) == 1:
                     await chunk[0].delete()
@@ -85,12 +85,13 @@ class ChannelPurger:
         if not messages:
             return self.deleted
 
-        bulk_msgs = [
-            message for message in messages if message.created_at > bulk_cutoff
-        ]
-        old_msgs = [
-            message for message in messages if message.created_at <= bulk_cutoff
-        ]
+        bulk_msgs: list[discord.Message] = []
+        old_msgs: list[discord.Message] = []
+        for message in messages:
+            if message.created_at > bulk_cutoff:
+                bulk_msgs.append(message)
+            else:
+                old_msgs.append(message)
 
         await self._bulk_delete(bulk_msgs)
         for msg in old_msgs:
