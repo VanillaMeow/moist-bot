@@ -15,8 +15,8 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
     func,
+    tuple_,
 )
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Field, SQLModel, col, select
 
 from moist_bot.utils.converters import normalize_datetime
@@ -46,6 +46,7 @@ class CommandStatsScope(StrEnum):
 
 
 type CommandUsageStatsKey = tuple[CommandStatsScope, int, int, str]
+type CommandUsageStatsLookupKey = tuple[str, int, int, str]
 
 
 class CommandUsageSummary(SQLModel):
@@ -59,6 +60,8 @@ class CommandUsageSummary(SQLModel):
     def normalize_first_used(cls, value: datetime | str | None) -> datetime | None:
         """Normalize SQLite datetime values before validation."""
 
+        if value is None:
+            return None
         return normalize_datetime(value)
 
 
@@ -350,9 +353,7 @@ class CommandUsageStats(SQLModel, table=True):
     def _usage_keys(usage: CommandUsage) -> Sequence[CommandUsageStatsKey]:
         """Return every rollup key touched by a raw usage event."""
 
-        guild_id = (
-            usage.guild_id if usage.guild_id is not None else STATS_SENTINEL_ID
-        )
+        guild_id = usage.guild_id if usage.guild_id is not None else STATS_SENTINEL_ID
         global_keys: list[CommandUsageStatsKey] = [
             (
                 CommandStatsScope.GLOBAL,
@@ -449,6 +450,12 @@ class CommandUsageStats(SQLModel, table=True):
 
         return list(stats_by_key.values())
 
+    @staticmethod
+    def _lookup_key(stats: CommandUsageStats) -> CommandUsageStatsLookupKey:
+        """Return the unique database key for a stats row."""
+
+        return (stats.scope, stats.guild_id, stats.author_id, stats.command)
+
     @classmethod
     async def upsert_usage_batch(
         cls,
@@ -461,28 +468,38 @@ class CommandUsageStats(SQLModel, table=True):
         if not stats:
             return
 
-        rows = [row.model_dump(exclude={'id'}) for row in stats]
+        keys = [cls._lookup_key(row) for row in stats]
         table = cast('Table', cls.__table__)  # type: ignore[reportAttributeAccessIssue]
-        statement = sqlite_insert(table).values(rows)
 
-        # `excluded` contains the values from the insert row that hit the conflict
-        excluded = statement.excluded
-        columns = table.c
-
-        # The unique rollup key turns repeated inserts into atomic counter updates
-        statement = statement.on_conflict_do_update(
-            index_elements=['scope', 'guild_id', 'author_id', 'command'],
-            set_={
-                'total_uses': columns['total_uses'] + excluded.total_uses,
-                'failed_uses': columns['failed_uses'] + excluded.failed_uses,
-                'app_command_uses': (
-                    columns['app_command_uses'] + excluded.app_command_uses
-                ),
-                'first_used': func.min(columns['first_used'], excluded.first_used),
-                'last_used': func.max(columns['last_used'], excluded.last_used),
-            },
+        result = await session.execute(
+            select(cls).where(
+                tuple_(
+                    table.c.scope,
+                    table.c.guild_id,
+                    table.c.author_id,
+                    table.c.command,
+                ).in_(keys)
+            )
         )
-        await session.execute(statement)
+        existing_by_key = {cls._lookup_key(row): row for row in result.scalars().all()}
+
+        for row in stats:
+            existing = existing_by_key.get(cls._lookup_key(row))
+            if existing is None:
+                session.add(row)
+                continue
+
+            existing.total_uses += row.total_uses
+            existing.failed_uses += row.failed_uses
+            existing.app_command_uses += row.app_command_uses
+
+            existing_first_used = normalize_datetime(existing.first_used)
+            row_first_used = normalize_datetime(row.first_used)
+            existing_last_used = normalize_datetime(existing.last_used)
+            row_last_used = normalize_datetime(row.last_used)
+
+            existing.first_used = min(existing_first_used, row_first_used)
+            existing.last_used = max(existing_last_used, row_last_used)
 
     @classmethod
     async def count_and_first(
