@@ -19,8 +19,9 @@ from .settings import settings
 from .utils.context import Context, MoistCommandTree
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
     from datetime import datetime
+    from pathlib import Path
 
     from discord import Message, app_commands
     from discord.ext.commands.bot import _BotOptions  # type: ignore[]
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 
+COGS_PACKAGE_NAME = COGS_FOLDER_PATH.name
 BOT_PREFIXES = ('water ', 'Water ', 'ww ', 'Ww ')
 INTENTS = discord.Intents(
     emojis_and_stickers=True,
@@ -59,6 +61,34 @@ def _get_prefix(bot: commands.Bot, message: Message) -> list[str]:
     return commands.when_mentioned_or(*BOT_PREFIXES)(bot, message)
 
 
+def is_extension_file(path: Path) -> bool:
+    return path.suffix == '.py' and path.stem != '__init__'
+
+
+def discover_extension_names() -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            file.stem for file in COGS_FOLDER_PATH.iterdir() if is_extension_file(file)
+        )
+    )
+
+
+def normalize_extension_name(name: str) -> str:
+    normalized = name
+    for prefix in (
+        f'{ROOT_PACKAGE}.{COGS_PACKAGE_NAME}.',
+        f'.{COGS_PACKAGE_NAME}.',
+        f'{COGS_PACKAGE_NAME}.',
+    ):
+        normalized = normalized.removeprefix(prefix)
+
+    return normalized.removesuffix('.py')
+
+
+def extension_module_name(name: str) -> str:
+    return f'.{COGS_PACKAGE_NAME}.{normalize_extension_name(name)}'
+
+
 class MoistBot(commands.Bot):
     executor: ProcessPoolExecutor
     session: aiohttp.ClientSession
@@ -70,7 +100,12 @@ class MoistBot(commands.Bot):
 
     reminder = None
 
-    def __init__(self, **kwargs: Unpack[BotOptions]):
+    def __init__(
+        self,
+        *,
+        extension_names: Iterable[str] | None = None,
+        **kwargs: Unpack[BotOptions],
+    ):
         kwargs.setdefault('allowed_mentions', ALLOWED_MENTIONS)
         kwargs.setdefault('help_attrs', {'hidden': True})
         kwargs.setdefault('command_prefix', _get_prefix)
@@ -80,6 +115,10 @@ class MoistBot(commands.Bot):
         kwargs.setdefault('intents', INTENTS)
 
         super().__init__(**kwargs)
+
+        self.extension_names: tuple[str, ...] | None = (
+            None if extension_names is None else tuple(extension_names)
+        )
 
         # Meta
         self.cooldowns: dict[tuple[int, str], datetime] = {}
@@ -101,18 +140,33 @@ class MoistBot(commands.Bot):
         )
         self._auto_spam_count: Counter[int] = Counter()
 
+    async def load_extension(
+        self, name: str, *, package: str | None = ROOT_PACKAGE
+    ) -> None:
+        await super().load_extension(extension_module_name(name), package=package)
+
+    async def reload_extension(
+        self, name: str, *, package: str | None = ROOT_PACKAGE
+    ) -> None:
+        await super().reload_extension(extension_module_name(name), package=package)
+
+    async def unload_extension(
+        self, name: str, *, package: str | None = ROOT_PACKAGE
+    ) -> None:
+        await super().unload_extension(extension_module_name(name), package=package)
+
     async def load_cogs(self) -> None:
-        cogs = COGS_FOLDER_PATH.name
+        extension_names = (
+            discover_extension_names()
+            if self.extension_names is None
+            else self.extension_names
+        )
 
-        for file in COGS_FOLDER_PATH.iterdir():
-            # Ignore non-python files or __init__.py
-            if file.suffix != '.py' or file.stem == '__init__':
-                continue
-
+        for name in extension_names:
             try:
-                await self.load_extension(f'.{cogs}.{file.stem}', package=ROOT_PACKAGE)
+                await self.load_extension(name)
             except commands.ExtensionError:
-                log.exception(f'Failed to load extension {file}\n')
+                log.exception(f'Failed to load extension {name}.')
 
     async def setup_hook(self) -> None:
         self.executor = ProcessPoolExecutor(max_workers=4)

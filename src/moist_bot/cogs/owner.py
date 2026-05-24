@@ -29,6 +29,11 @@ import psutil
 from discord.ext import commands
 from jishaku.modules import package_version
 
+from moist_bot.bot import (
+    COGS_PACKAGE_NAME,
+    extension_module_name,
+    normalize_extension_name,
+)
 from moist_bot.constants import COGS_FOLDER_PATH, ROOT_PACKAGE
 from moist_bot.settings import settings
 from moist_bot.utils.converters import get_media_from_ctx
@@ -44,7 +49,6 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 
-cogs = COGS_FOLDER_PATH.name
 PROJECT_ROOT_PATH = str(COGS_FOLDER_PATH.parents[2])
 DEPENDENCY_FILES = frozenset({'pyproject.toml', 'uv.lock'})
 
@@ -112,7 +116,7 @@ class Owner(commands.Cog):
             ext = self.last_ext
 
         try:
-            await self.bot.reload_extension(f'.{cogs}.{ext}', package=ROOT_PACKAGE)
+            await self.bot.reload_extension(ext)
 
         except commands.ExtensionNotLoaded, commands.ExtensionNotFound:
             return await ctx.reply(":anger: specified cog name doesn't exits bozo")
@@ -174,7 +178,7 @@ class Owner(commands.Cog):
             Reloadable cog modules sorted so nested modules reload first.
         """
 
-        cog_prefix = f'{ROOT_PACKAGE}.{cogs}.'
+        cog_prefix = f'{ROOT_PACKAGE}.{COGS_PACKAGE_NAME}.'
         targets: list[ReloadTarget] = []
 
         for file in changed_files:
@@ -184,7 +188,9 @@ class Owner(commands.Cog):
 
             cog_module = module.removeprefix(cog_prefix)
             is_extension = '.' not in cog_module
-            target_module = f'.{cogs}.{cog_module}' if is_extension else module
+            target_module = (
+                extension_module_name(cog_module) if is_extension else module
+            )
             targets.append(
                 ReloadTarget(
                     module=target_module,
@@ -196,6 +202,28 @@ class Owner(commands.Cog):
 
         targets.sort(key=lambda target: target.depth, reverse=True)
         return targets
+
+    def is_reload_target_loaded(self, target: ReloadTarget) -> bool:
+        """Return whether a target is already active in this process.
+
+        Parameters
+        ----------
+        target:
+            The changed module selected from the git diff.
+
+        Returns
+        -------
+        bool
+            Whether the target can be reloaded without loading a new extension.
+        """
+
+        if target.is_extension:
+            loaded_extensions = {
+                normalize_extension_name(module) for module in self.bot.extensions
+            }
+            return normalize_extension_name(target.module) in loaded_extensions
+
+        return target.module in sys.modules
 
     @staticmethod
     def needs_restart(changed_files: list[str]) -> bool:
@@ -239,20 +267,6 @@ class Owner(commands.Cog):
 
         return any(file in DEPENDENCY_FILES for file in changed_files)
 
-    async def reload_or_load_extension(self, module: str) -> None:
-        """Reload an extension, loading it first if it is not active.
-
-        Parameters
-        ----------
-        module:
-            A discord.py extension import path.
-        """
-
-        try:
-            await self.bot.reload_extension(module, package=ROOT_PACKAGE)
-        except commands.ExtensionNotLoaded:
-            await self.bot.load_extension(module, package=ROOT_PACKAGE)
-
     async def reload_target(self, target: ReloadTarget) -> None:
         """Reload a changed cog or nested cog helper module.
 
@@ -263,7 +277,7 @@ class Owner(commands.Cog):
         """
 
         if target.is_extension:
-            await self.reload_or_load_extension(target.module)
+            await self.bot.reload_extension(target.module)
             return
 
         module = sys.modules[target.module]
@@ -371,14 +385,48 @@ class Owner(commands.Cog):
             await ctx.reply(message)
             return
 
+        loaded_targets: list[ReloadTarget] = []
+        skipped_targets: list[ReloadTarget] = []
+        for target in targets:
+            destination = (
+                loaded_targets
+                if self.is_reload_target_loaded(target)
+                else skipped_targets
+            )
+            destination.append(target)
+
+        if not loaded_targets:
+            message = (
+                f':arrow_down: Updated '
+                f'`{before_sha[:7]}` -> `{after_sha[:7]}`.\n'
+                f'Changed files:\n{changed_text}\n\n'
+                'No already-loaded cog modules changed.'
+            )
+            if skipped_targets:
+                skipped_text = '\n'.join(
+                    f'{index}. `{target.display_name}`'
+                    for index, target in enumerate(skipped_targets, start=1)
+                )
+                message += f'\n\nSkipped unloaded module(s):\n{skipped_text}'
+            if restart_required:
+                message += '\nUse `restart` for these changes to fully take effect.'
+            await ctx.reply(message)
+            return
+
         modules_text = '\n'.join(
             f'{index}. `{target.display_name}`'
-            for index, target in enumerate(targets, start=1)
+            for index, target in enumerate(loaded_targets, start=1)
         )
         prompt_text = (
             f'Pulled `{before_sha[:7]}` -> `{after_sha[:7]}`.\n'
             f'This will reload the following module(s):\n{modules_text}'
         )
+        if skipped_targets:
+            skipped_text = '\n'.join(
+                f'{index}. `{target.display_name}`'
+                for index, target in enumerate(skipped_targets, start=1)
+            )
+            prompt_text += f'\n\nSkipping unloaded module(s):\n{skipped_text}'
         if restart_required:
             prompt_text += (
                 '\n\nSome non-cog code or dependency files also changed. '
@@ -392,7 +440,7 @@ class Owner(commands.Cog):
 
         # Reload deeper helper modules before top-level cog extensions
         statuses: list[tuple[str, str]] = []
-        for target in targets:
+        for target in loaded_targets:
             try:
                 await self.reload_target(target)
             except KeyError, commands.ExtensionError:
@@ -413,7 +461,7 @@ class Owner(commands.Cog):
         """Load a cog."""
 
         try:
-            await self.bot.load_extension(f'.{cogs}.{ext}', package=ROOT_PACKAGE)
+            await self.bot.load_extension(ext)
 
         except commands.ExtensionAlreadyLoaded, commands.ExtensionNotFound:
             await ctx.reply(
@@ -434,7 +482,7 @@ class Owner(commands.Cog):
         """Unload a cog."""
 
         try:
-            await self.bot.unload_extension(f'.{cogs}.{ext}', package=ROOT_PACKAGE)
+            await self.bot.unload_extension(ext)
         except commands.ExtensionNotFound, commands.ExtensionNotLoaded:
             await ctx.reply(":anger: specified cog name doesn't exits bozo")
             return
