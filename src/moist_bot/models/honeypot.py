@@ -64,10 +64,10 @@ class HoneypotIncident(SQLModel, table=True):
     )
 
     id: int | None = Field(default=None, primary_key=True)
-    config_id: int = Field(
+    config_id: int | None = Field(
         sa_column=Column(
-            ForeignKey('guild_honeypot_configs.id', ondelete='RESTRICT'),
-            nullable=False,
+            ForeignKey('guild_honeypot_configs.id', ondelete='SET NULL'),
+            nullable=True,
             index=True,
         )
     )
