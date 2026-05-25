@@ -1023,7 +1023,7 @@ class Owner(commands.Cog):
             )
             .add_field(
                 name='Distribution',
-                value=f'Commit: {current_commit}\n'
+                value=f'Commit: `{current_commit}`\n'
                 f'{dist_version}\n'
                 f'Jishaku: v{package_version("jishaku")}\n'
                 f'Python: v{python_version}\n'
