@@ -967,6 +967,11 @@ class Owner(commands.Cog):
         else:
             dist_version = f'unknown: v{discord.__version__}'
 
+        commit_status, commit_stdout, _ = await run_git(
+            'rev-parse', '--short', 'HEAD', cwd=PROJECT_ROOT_PATH
+        )
+        current_commit = commit_stdout.strip() if commit_status == 0 else 'unknown'
+
         python_version, _, _ = sys.version.partition('(')
 
         stats_cog = self.bot.get_cog('Stats')
@@ -1018,7 +1023,8 @@ class Owner(commands.Cog):
             )
             .add_field(
                 name='Distribution',
-                value=f'{dist_version}\n'
+                value=f'Commit: {current_commit}\n'
+                f'{dist_version}\n'
                 f'Jishaku: v{package_version("jishaku")}\n'
                 f'Python: v{python_version}\n'
                 f'Platform: {sys.platform}',
