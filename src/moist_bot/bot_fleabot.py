@@ -16,13 +16,14 @@ if TYPE_CHECKING:
 
 
 FLEABOT_EXTENSIONS: Final = (
-    'blocklist',
     'errorhandle',
+    'owner_debug',
+    'blocklist',
     'honeypot',
-    'meta',
     'owner',
     'stats',
     'purge',
+    'meta',
     'jsk',
 )
 BOT_PREFIXES = ('fb ', 'Fb ')
