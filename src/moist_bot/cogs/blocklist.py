@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,7 @@ from moist_bot.models import (
     BlocklistScope,
     ChannelPolicyMode,
 )
+from moist_bot.services import blocklist as blocklist_service
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
@@ -583,4 +585,9 @@ class Blocklist(commands.Cog):
 
 
 async def setup(bot: MoistBot) -> None:
+    if bot.is_ready():
+        manager_module = importlib.reload(blocklist_service)
+        bot.blocklist = manager_module.BlocklistManager(bot)
+        await bot.blocklist.load()
+
     await bot.add_cog(Blocklist(bot))
