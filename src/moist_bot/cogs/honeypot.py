@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -8,7 +9,7 @@ from discord.ext import commands, menus
 from sqlmodel import col
 
 from moist_bot.models import HoneypotIncident
-from moist_bot.services.honeypot import HoneypotManager
+from moist_bot.services import honeypot as honeypot_service
 from moist_bot.utils import formats
 from moist_bot.utils.converters import normalize_datetime, shorten
 from moist_bot.utils.formats import plural
@@ -222,9 +223,6 @@ class Honeypot(commands.Cog):
             raise commands.NoPrivateMessage
         return await can_manage_honeypot(ctx)
 
-    async def cog_load(self) -> None:
-        await self.bot.honeypot.load()
-
     async def cog_unload(self) -> None:
         self.bot.honeypot.cancel_startup_scan()
 
@@ -365,5 +363,10 @@ class Honeypot(commands.Cog):
 
 
 async def setup(bot: MoistBot) -> None:
-    bot.honeypot = HoneypotManager(bot)
+    if bot.is_ready():
+        manager_module = importlib.reload(honeypot_service)
+        bot.honeypot = manager_module.HoneypotManager(bot)
+        bot.honeypot.mark_startup_scan_done()
+        await bot.honeypot.load()
+
     await bot.add_cog(Honeypot(bot))
