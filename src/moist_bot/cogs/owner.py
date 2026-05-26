@@ -232,6 +232,7 @@ class Owner(commands.Cog):
             Whether a process restart is needed for the changes to apply.
         """
 
+        # TODO(leah): don't hardcode paths
         return any(
             file in DEPENDENCY_FILES
             or (
