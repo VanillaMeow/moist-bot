@@ -59,7 +59,7 @@ class HoneypotSendFlags(
     """Flags accepted by the alert send command."""
 
     force_new: bool = commands.flag(
-        name='force-new',
+        name='force',
         default=False,
         description='Send a new alert message instead of editing the stored one',
     )
