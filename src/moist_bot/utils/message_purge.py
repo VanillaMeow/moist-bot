@@ -59,15 +59,36 @@ class ChannelPurger:
                     if not await self._delete_single(msg):
                         return
 
+    async def delete_messages(
+        self,
+        messages: list[discord.Message],
+    ) -> list[discord.Message]:
+        """Deletes known messages using bulk deletion where possible."""
+
+        now = discord.utils.utcnow()
+        bulk_cutoff = now - BULK_DELETE_LIMIT
+
+        bulk_msgs: list[discord.Message] = []
+        old_msgs: list[discord.Message] = []
+        for message in messages:
+            if message.created_at > bulk_cutoff:
+                bulk_msgs.append(message)
+            else:
+                old_msgs.append(message)
+
+        await self._bulk_delete(bulk_msgs)
+        for msg in old_msgs:
+            if not await self._delete_single(msg):
+                break
+
+        return self.deleted
+
     async def purge(
         self,
         limit: int,
         check: Callable[[discord.Message], bool] = lambda _: True,
     ) -> list[discord.Message]:
         """Collect and delete up to ``limit`` messages matching ``check``."""
-
-        now = discord.utils.utcnow()
-        bulk_cutoff = now - BULK_DELETE_LIMIT
 
         messages: list[discord.Message] = []
         scan_limit = min(limit * 5, 5000)
@@ -85,17 +106,4 @@ class ChannelPurger:
         if not messages:
             return self.deleted
 
-        bulk_msgs: list[discord.Message] = []
-        old_msgs: list[discord.Message] = []
-        for message in messages:
-            if message.created_at > bulk_cutoff:
-                bulk_msgs.append(message)
-            else:
-                old_msgs.append(message)
-
-        await self._bulk_delete(bulk_msgs)
-        for msg in old_msgs:
-            if not await self._delete_single(msg):
-                break
-
-        return self.deleted
+        return await self.delete_messages(messages)
