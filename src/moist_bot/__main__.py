@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 from moist_bot.bot import MoistBot
-from moist_bot.bot_fleabot import FleaBot
 from moist_bot.settings import settings
 from moist_bot.utils.logger import setup_logging
 
@@ -16,10 +15,17 @@ else:
     async_driver = uvloop
 
 
+# Select the bot class based on settings
+bot_cls = MoistBot
+if settings.use_fleabot:
+    from moist_bot.bot_fleabot import FleaBot
+    bot_cls = FleaBot
+
+
+
 async def run_bot() -> None:
-    bot_cls = FleaBot if settings.use_fleabot else MoistBot
-    async with bot_cls() as client:
-        await client.start()
+    async with bot_cls() as bot:
+        await bot.start()
 
 
 async def _main() -> None:
