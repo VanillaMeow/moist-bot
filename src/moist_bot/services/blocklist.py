@@ -782,9 +782,7 @@ class BlocklistManager:  # noqa: PLR0904
         """Send an automatic blocklist message to the configured logs channel."""
 
         try:
-            channel = self.bot.get_channel(settings.logs_channel_id)
-            if channel is None:
-                channel = await self.bot.fetch_channel(settings.logs_channel_id)
+            channel = await self.bot.get_or_fetch_channel(settings.logs_channel_id)
         except discord.HTTPException:
             log.exception('Failed to send blocklist log message.')
             return
