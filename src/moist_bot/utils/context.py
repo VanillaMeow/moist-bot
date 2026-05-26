@@ -26,7 +26,7 @@ class MoistCommandTree(app_commands.CommandTree[MoistBot]):
         """Reject blocklisted application command interactions before dispatch."""
 
         bot = self.client
-        if bot.is_shutting_down:
+        if bot.is_shutting_down.is_set():
             if not interaction.response.is_done():
                 try:
                     await interaction.response.send_message(

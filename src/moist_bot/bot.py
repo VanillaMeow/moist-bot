@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
-from typing import TYPE_CHECKING, Any, Unpack, cast
+from typing import TYPE_CHECKING, Any, Unpack, cast, overload
 
 import aiohttp
 import discord
@@ -127,7 +127,7 @@ class MoistBot(commands.Bot):
         # Meta
         self.cooldowns: dict[tuple[int, str], datetime] = {}
         self.started_at: datetime = DATETIME_NEVER
-        self.is_shutting_down: bool = False
+        self.is_shutting_down: asyncio.Event = asyncio.Event()
         self.synced: bool = True
 
         # Database
@@ -143,21 +143,6 @@ class MoistBot(commands.Bot):
             type=commands.BucketType.user,
         )
         self._auto_spam_count: Counter[int] = Counter()
-
-    async def load_extension(
-        self, name: str, *, package: str | None = ROOT_PACKAGE
-    ) -> None:
-        await super().load_extension(extension_module_name(name), package=package)
-
-    async def reload_extension(
-        self, name: str, *, package: str | None = ROOT_PACKAGE
-    ) -> None:
-        await super().reload_extension(extension_module_name(name), package=package)
-
-    async def unload_extension(
-        self, name: str, *, package: str | None = ROOT_PACKAGE
-    ) -> None:
-        await super().unload_extension(extension_module_name(name), package=package)
 
     async def load_cogs(self) -> None:
         extension_names = (
@@ -184,6 +169,39 @@ class MoistBot(commands.Bot):
         ]
         await asyncio.gather(*tasks)
 
+    async def start(
+        self, token: str = settings.token, *, reconnect: bool = True
+    ) -> None:
+        await super().start(token=token, reconnect=reconnect)
+
+    async def close(self) -> None:
+        self.is_shutting_down.set()
+
+        if hasattr(self, 'session') and not self.session.closed:
+            await self.session.close()
+
+        await self.db_engine.dispose()
+
+        if hasattr(self, 'executor'):
+            self.executor.shutdown()
+
+        await super().close()
+
+        log.info('Bot closed.')
+
+    async def on_ready(self) -> None:
+        if self.started_at == DATETIME_NEVER:
+            self.started_at = discord.utils.utcnow()
+            log.info(f'Connected as {self.user}')
+        else:
+            log.info('Reconnected after disconnect!')
+
+        if not self.synced:
+            await self.wait_until_ready()
+            await self.tree.sync(guild=None)
+            self.synced = True
+            log.info('Application commands synced.')
+
     async def get_context(  # type: ignore[reportIncompatibleMethodOverride]
         self, origin: Message | Interaction, /, *, cls: type[Context] = Context
     ) -> Context:
@@ -192,7 +210,7 @@ class MoistBot(commands.Bot):
     async def can_run(  # type: ignore[reportIncompatibleMethodOverride]
         self, ctx: Context, /, *, call_once: bool = False
     ) -> bool:
-        if self.is_shutting_down:
+        if self.is_shutting_down.is_set():
             return False
 
         # No cooldown for bot owners
@@ -226,7 +244,7 @@ class MoistBot(commands.Bot):
             if await self._handle_spamming(ctx):
                 return
 
-        if self.is_shutting_down:
+        if self.is_shutting_down.is_set():
             return
 
         await self.invoke(ctx)
@@ -267,38 +285,79 @@ class MoistBot(commands.Bot):
 
         return True
 
-    async def start(
-        self, token: str = settings.token, *, reconnect: bool = True
+    async def load_extension(
+        self, name: str, *, package: str | None = ROOT_PACKAGE
     ) -> None:
-        await super().start(token=token, reconnect=reconnect)
+        await super().load_extension(extension_module_name(name), package=package)
 
-    async def close(self) -> None:
-        self.is_shutting_down = True
+    async def reload_extension(
+        self, name: str, *, package: str | None = ROOT_PACKAGE
+    ) -> None:
+        await super().reload_extension(extension_module_name(name), package=package)
 
-        if 'session' in self.__dict__ and not self.session.closed:
-            await self.session.close()
+    async def unload_extension(
+        self, name: str, *, package: str | None = ROOT_PACKAGE
+    ) -> None:
+        await super().unload_extension(extension_module_name(name), package=package)
 
-        await self.db_engine.dispose()
+    @overload
+    async def get_or_fetch_channel(
+        self,
+        channel_id: int,
+        *,
+        guild: discord.Guild,
+    ) -> discord.abc.GuildChannel | discord.Thread: ...
 
-        if 'executor' in self.__dict__:
-            self.executor.shutdown()
+    @overload
+    async def get_or_fetch_channel(
+        self,
+        channel_id: int,
+        *,
+        guild: None = None,
+    ) -> discord.abc.GuildChannel | discord.abc.PrivateChannel | discord.Thread: ...
 
-        await super().close()
+    async def get_or_fetch_channel(
+        self,
+        channel_id: int,
+        *,
+        guild: discord.Guild | None = None,
+    ) -> discord.abc.GuildChannel | discord.abc.PrivateChannel | discord.Thread:
+        """Return a cached channel or fetch it from Discord."""
 
-        log.info('Bot closed.')
+        if guild is not None:
+            channel = guild.get_channel_or_thread(channel_id)
+            if channel is not None:
+                return channel
 
-    async def on_ready(self) -> None:
-        if self.started_at == DATETIME_NEVER:
-            self.started_at = discord.utils.utcnow()
-            log.info(f'Connected as {self.user}')
-        else:
-            log.info('Reconnected after disconnect!')
+            return await guild.fetch_channel(channel_id)
 
-        if not self.synced:
-            await self.wait_until_ready()
-            await self.tree.sync(guild=None)
-            self.synced = True
-            log.info('Application commands synced.')
+        channel = self.get_channel(channel_id)
+        if channel is not None:
+            return channel
+
+        return await self.fetch_channel(channel_id)
+
+    async def get_or_fetch_guild(self, guild_id: int) -> discord.Guild:
+        """Return a cached guild or fetch it from Discord."""
+
+        guild = self.get_guild(guild_id)
+        if guild is not None:
+            return guild
+
+        return await self.fetch_guild(guild_id)
+
+    async def get_or_fetch_message(
+        self,
+        channel: discord.abc.Messageable,
+        message_id: int,
+    ) -> discord.Message:
+        """Return a cached message or fetch it from its channel."""
+
+        message = discord.utils.get(self.cached_messages, id=message_id)
+        if message is not None:
+            return message
+
+        return await channel.fetch_message(message_id)
 
     @property
     def config(self) -> Any:
