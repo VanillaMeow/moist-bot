@@ -1,6 +1,9 @@
+"""This is a boilerplate file to make implementing cogs easier."""
+
 from __future__ import annotations
 
 import datetime
+import logging
 from typing import TYPE_CHECKING
 
 import discord
@@ -11,9 +14,16 @@ if TYPE_CHECKING:
     from moist_bot.utils.context import Context
 
 
+log = logging.getLogger('discord.' + __name__)
+
+
 class CooldownTest(commands.Cog):
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
+
+    @property
+    def display_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name='\N{HAMMER AND WRENCH}')
 
     @commands.is_owner()
     @commands.cooldown(rate=1, per=10, type=commands.BucketType.user)
