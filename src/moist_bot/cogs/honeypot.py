@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 INCIDENT_CONTENT_WIDTH = 36
 INCIDENT_PAGE_SIZE = 8
 INCIDENT_PAGE_SIZE_MAX = 15
+HONEYPOT_ALERT_DESCRIPTION = 'This channel is monitored. Sending messages here will trigger automatic moderation.'
 
 
 async def can_manage_honeypot(ctx: GuildContext) -> bool:
@@ -50,6 +51,29 @@ class HoneypotIncidentFlags(
         default=INCIDENT_PAGE_SIZE,
         description=f'Incidents per page (1-{INCIDENT_PAGE_SIZE_MAX})',
     )
+
+
+class HoneypotSendFlags(
+    commands.FlagConverter, prefix='--', delimiter=' ', case_insensitive=True
+):
+    """Flags accepted by the alert send command."""
+
+    force_new: bool = commands.flag(
+        name='force-new',
+        default=False,
+        description='Send a new alert message instead of editing the stored one',
+    )
+
+
+class HoneypotAlertEmbed(discord.Embed):
+    """Default honeypot alert message embed."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            title='\N{HONEY POT} Honeypot Alert',
+            description=HONEYPOT_ALERT_DESCRIPTION,
+            colour=discord.Colour.gold(),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +232,53 @@ async def send_incident_paginator(
     await pages.start()
 
 
+async def edit_honeypot_alert_message(
+    ctx: GuildContext,
+    channel: discord.TextChannel,
+    message_id: int,
+    *,
+    embed: discord.Embed,
+    allowed_mentions: discord.AllowedMentions,
+) -> tuple[discord.Message | None, bool]:
+    """Edit an existing alert message or report why it cannot be edited."""
+
+    try:
+        message = await ctx.bot.get_or_fetch_message(channel, message_id)
+    except discord.NotFound:
+        return None, True
+    except discord.HTTPException:
+        await ctx.reply(':warning: I cannot fetch the stored alert message.')
+        return None, False
+
+    try:
+        await message.edit(
+            content=None,
+            embed=embed,
+            allowed_mentions=allowed_mentions,
+        )
+    except discord.HTTPException:
+        await ctx.reply(':warning: I cannot edit the stored alert message.')
+        return None, False
+
+    return message, True
+
+
+async def send_honeypot_alert_message(
+    ctx: GuildContext,
+    channel: discord.TextChannel,
+    *,
+    embed: discord.Embed,
+    allowed_mentions: discord.AllowedMentions,
+) -> discord.Message | None:
+    """Send a new honeypot alert message."""
+
+    try:
+        return await channel.send(embed=embed, allowed_mentions=allowed_mentions)
+    except discord.HTTPException:
+        await ctx.reply(':warning: I cannot send messages in the honeypot channel.')
+        return None
+
+
 class Honeypot(commands.Cog):
     """Honeypot moderation commands and message listener."""
 
@@ -297,6 +368,70 @@ class Honeypot(commands.Cog):
         # Finally, send the reply
         await ctx.reply('\n'.join(lines))
 
+    @honeypot.command(name='send')
+    async def honeypot_send(
+        self,
+        ctx: GuildContext,
+        *,
+        flags: HoneypotSendFlags,
+    ) -> None:
+        """Send or update the configured honeypot alert message."""
+
+        config = self.bot.honeypot.get_config(ctx.guild.id)
+        if config is None:
+            await ctx.reply(
+                ':warning: This server does not have a honeypot configured.'
+            )
+            return
+
+        channel = ctx.guild.get_channel(config.channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            await ctx.reply(
+                ':warning: Configured honeypot channel is not a text channel.'
+            )
+            return
+
+        # Send the alert message
+
+        if config.alert_message_id is not None and not flags.force_new:
+            message, can_continue = await edit_honeypot_alert_message(
+                ctx,
+                channel,
+                config.alert_message_id,
+                embed=HoneypotAlertEmbed(),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            if message is not None:
+                await self.bot.honeypot.set_alert_message_id(
+                    guild_id=ctx.guild.id,
+                    alert_message_id=message.id,
+                    updated_by_id=ctx.author.id,
+                )
+                await ctx.reply(
+                    f':white_check_mark: Updated honeypot alert message: {message.jump_url}'
+                )
+                return
+            if not can_continue:
+                return
+
+        message = await send_honeypot_alert_message(
+            ctx,
+            channel,
+            embed=HoneypotAlertEmbed(),
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        if message is None:
+            return
+
+        await self.bot.honeypot.set_alert_message_id(
+            guild_id=ctx.guild.id,
+            alert_message_id=message.id,
+            updated_by_id=ctx.author.id,
+        )
+        await ctx.reply(
+            f':white_check_mark: Sent honeypot alert message: {message.jump_url}'
+        )
+
     @honeypot.command(name='disable')
     async def honeypot_disable(self, ctx: GuildContext) -> None:
         """Disable this server's honeypot."""
@@ -325,11 +460,18 @@ class Honeypot(commands.Cog):
             return
 
         state = 'enabled' if config.enabled else 'disabled'
-        count = await self.bot.honeypot.incident_count_for_guild(guild_id=ctx.guild.id)
+        count = self.bot.honeypot.incident_count_for_guild(guild_id=ctx.guild.id)
+        alert = 'not sent'
+        if config.alert_message_id is not None:
+            alert = (
+                f'https://discord.com/channels/{ctx.guild.id}/'
+                f'{config.channel_id}/{config.alert_message_id}'
+            )
         await ctx.reply(
             f'Honeypot is **{state}**.\n'
             f'Honeypot: <#{config.channel_id}>\n'
             f'Logs: <#{config.log_channel_id}>\n'
+            f'Alert: {alert}\n'
             f'Total incidents: `{count}`'
         )
 

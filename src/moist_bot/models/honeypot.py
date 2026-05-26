@@ -11,9 +11,12 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     UniqueConstraint,
     func,
+    update,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Field, SQLModel, col, select
 
 if TYPE_CHECKING:
@@ -35,12 +38,137 @@ class GuildHoneypotConfig(SQLModel, table=True):
     guild_id: int = Field(sa_type=BigInteger, index=True)
     channel_id: int = Field(sa_type=BigInteger, index=True)
     log_channel_id: int = Field(sa_type=BigInteger, index=True)
+    alert_message_id: int | None = Field(default=None, sa_type=BigInteger, index=True)
     enabled: bool = Field(default=True, index=True)
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
     updated_by_id: int | None = Field(default=None, sa_type=BigInteger)
+
+
+class HoneypotGuildStats(SQLModel, table=True):
+    """Precomputed honeypot incident totals for one guild."""
+
+    __tablename__: ClassVar[str] = 'honeypot_guild_stats'
+
+    guild_id: int = Field(sa_type=BigInteger, primary_key=True)
+    total_incidents: int = Field(default=0, sa_type=Integer)
+
+    @classmethod
+    async def counts_by_guild(cls, session: AsyncSession) -> dict[int, int]:
+        """Return precomputed incident counts keyed by guild id."""
+
+        result = await session.execute(select(cls))
+        return {row.guild_id: row.total_incidents for row in result.scalars().all()}
+
+    @classmethod
+    async def increment(cls, session: AsyncSession, *, guild_id: int) -> int:
+        """Atomically increment and return a guild incident total."""
+
+        total = await cls._increment_existing(session, guild_id=guild_id)
+        if total is not None:
+            return total
+
+        try:
+            async with session.begin_nested():
+                session.add(cls(guild_id=guild_id, total_incidents=0))
+                await session.flush()
+        except IntegrityError:
+            pass
+
+        total = await cls._increment_existing(session, guild_id=guild_id)
+        if total is None:
+            msg = f'Failed to increment honeypot guild stats for {guild_id}.'
+            raise RuntimeError(msg)
+        return total
+
+    @classmethod
+    async def _increment_existing(
+        cls,
+        session: AsyncSession,
+        *,
+        guild_id: int,
+    ) -> int | None:
+        total_incidents = col(cls.total_incidents)
+        result = await session.execute(
+            update(cls)
+            .where(col(cls.guild_id) == guild_id)
+            .values(total_incidents=total_incidents + 1)
+            .returning(total_incidents)
+        )
+        return result.scalar_one_or_none()
+
+
+class HoneypotUserStats(SQLModel, table=True):
+    """Precomputed honeypot incident totals for one guild member."""
+
+    __tablename__: ClassVar[str] = 'honeypot_user_stats'
+
+    guild_id: int = Field(sa_type=BigInteger, primary_key=True)
+    user_id: int = Field(sa_type=BigInteger, primary_key=True)
+    total_incidents: int = Field(default=0, sa_type=Integer)
+
+    @classmethod
+    async def increment(
+        cls,
+        session: AsyncSession,
+        *,
+        guild_id: int,
+        user_id: int,
+    ) -> int:
+        """Atomically increment and return a guild member incident total."""
+
+        total = await cls._increment_existing(
+            session,
+            guild_id=guild_id,
+            user_id=user_id,
+        )
+        if total is not None:
+            return total
+
+        try:
+            async with session.begin_nested():
+                session.add(
+                    cls(
+                        guild_id=guild_id,
+                        user_id=user_id,
+                        total_incidents=0,
+                    )
+                )
+                await session.flush()
+        except IntegrityError:
+            pass
+
+        total = await cls._increment_existing(
+            session,
+            guild_id=guild_id,
+            user_id=user_id,
+        )
+        if total is None:
+            msg = f'Failed to increment honeypot user stats for {guild_id}/{user_id}.'
+            raise RuntimeError(msg)
+        return total
+
+    @classmethod
+    async def _increment_existing(
+        cls,
+        session: AsyncSession,
+        *,
+        guild_id: int,
+        user_id: int,
+    ) -> int | None:
+        total_incidents = col(cls.total_incidents)
+        result = await session.execute(
+            update(cls)
+            .where(
+                col(cls.guild_id) == guild_id,
+                col(cls.user_id) == user_id,
+            )
+            .values(total_incidents=total_incidents + 1)
+            .returning(total_incidents)
+        )
+        return result.scalar_one_or_none()
 
 
 class HoneypotIncident(SQLModel, table=True):
@@ -126,22 +254,4 @@ class HoneypotIncident(SQLModel, table=True):
         """Return the number of incidents matching the criteria."""
 
         result = await session.execute(select(func.count(col(cls.id))).where(*criteria))
-        return result.scalar_one()
-
-    @classmethod
-    async def trigger_count_for_user(
-        cls,
-        session: AsyncSession,
-        *,
-        guild_id: int,
-        user_id: int,
-    ) -> int:
-        """Return the number of incidents recorded for a guild member."""
-
-        result = await session.execute(
-            select(func.count(col(cls.id))).where(
-                col(cls.guild_id) == guild_id,
-                col(cls.user_id) == user_id,
-            )
-        )
         return result.scalar_one()

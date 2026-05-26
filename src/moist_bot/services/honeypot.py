@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
@@ -9,7 +10,12 @@ import discord
 from sqlalchemy import update
 from sqlmodel import col, select
 
-from moist_bot.models import GuildHoneypotConfig, HoneypotIncident
+from moist_bot.models import (
+    GuildHoneypotConfig,
+    HoneypotGuildStats,
+    HoneypotIncident,
+    HoneypotUserStats,
+)
 from moist_bot.utils.converters import shorten
 from moist_bot.utils.formats import plural
 from moist_bot.utils.message_purge import ChannelPurger
@@ -37,6 +43,7 @@ class HoneypotConfig:
     guild_id: int
     channel_id: int
     log_channel_id: int
+    alert_message_id: int | None
     enabled: bool
 
 
@@ -63,6 +70,7 @@ class HoneypotManager:
     def __init__(self, bot: MoistBot) -> None:
         self.bot: MoistBot = bot
         self.configs: dict[int, HoneypotConfig] = {}
+        self._incident_counts: defaultdict[int, int] = defaultdict(int)
         self._load_lock: asyncio.Lock = asyncio.Lock()
         self._startup_scan_done: bool = False
         self._startup_scan_task: asyncio.Task[None] | None = None
@@ -74,8 +82,10 @@ class HoneypotManager:
             async with self.bot.db_session_maker() as session:
                 result = await session.execute(select(GuildHoneypotConfig))
                 rows = list(result.scalars().all())
+                incident_counts = await HoneypotGuildStats.counts_by_guild(session)
 
             self.configs.clear()
+            self._incident_counts = defaultdict(int, incident_counts)
             for row in rows:
                 self._cache_config(row)
 
@@ -93,6 +103,7 @@ class HoneypotManager:
             guild_id=config.guild_id,
             channel_id=config.channel_id,
             log_channel_id=config.log_channel_id,
+            alert_message_id=config.alert_message_id,
             enabled=config.enabled,
         )
         self.configs[config.guild_id] = cached
@@ -134,14 +145,15 @@ class HoneypotManager:
         seconds = int(max(0.0, age.total_seconds())) + STARTUP_SCAN_DELETE_SECONDS_GRACE
         return min(seconds, DISCORD_MAX_DELETE_MESSAGE_SECONDS)
 
-    async def incident_count_for_guild(self, *, guild_id: int) -> int:
+    def incident_count_for_guild(self, *, guild_id: int) -> int:
         """Return the total number of honeypot incidents for a guild."""
 
-        async with self.bot.db_session_maker() as session:
-            return await HoneypotIncident.history_count(
-                session,
-                criteria=(col(HoneypotIncident.guild_id) == guild_id,),
-            )
+        return self._incident_counts[guild_id]
+
+    def _increment_incident_count(self, guild_id: int) -> None:
+        """Increment the cached guild incident total."""
+
+        self._incident_counts[guild_id] += 1
 
     async def set_config(
         self,
@@ -167,6 +179,8 @@ class HoneypotManager:
                     log_channel_id=log_channel_id,
                 )
                 session.add(config)
+            elif config.channel_id != channel_id:
+                config.alert_message_id = None
 
             config.channel_id = channel_id
             config.log_channel_id = log_channel_id
@@ -177,6 +191,36 @@ class HoneypotManager:
             cached = self._cache_config(config)
             await session.commit()
 
+        return cached
+
+    async def set_alert_message_id(
+        self,
+        *,
+        guild_id: int,
+        alert_message_id: int,
+        updated_by_id: int,
+    ) -> HoneypotConfig | None:
+        """Updates a guild config's alert message id."""
+
+        async with self.bot.db_session_maker() as session:
+            result = await session.execute(
+                select(GuildHoneypotConfig).where(
+                    col(GuildHoneypotConfig.guild_id) == guild_id
+                )
+            )
+            config = result.scalar_one_or_none()
+            if config is None:
+                self.configs.pop(guild_id, None)
+                return None
+
+            config.alert_message_id = alert_message_id
+            config.updated_at = discord.utils.utcnow()
+            config.updated_by_id = updated_by_id
+            await session.flush()
+            cached = self._cache_config(config)
+            await session.commit()
+
+        self.configs[guild_id] = cached
         return cached
 
     async def disable_config(self, *, guild_id: int, updated_by_id: int) -> bool:
@@ -243,13 +287,12 @@ class HoneypotManager:
         """Create one incident row and return it with the updated trigger count."""
 
         async with self.bot.db_session_maker() as session:
-            trigger_count = (
-                await HoneypotIncident.trigger_count_for_user(
-                    session,
-                    guild_id=config.guild_id,
-                    user_id=user_id,
-                )
-            ) + 1
+            trigger_count = await HoneypotUserStats.increment(
+                session,
+                guild_id=config.guild_id,
+                user_id=user_id,
+            )
+            await HoneypotGuildStats.increment(session, guild_id=config.guild_id)
             incident = HoneypotIncident(
                 config_id=config.id,
                 guild_id=config.guild_id,
@@ -268,6 +311,7 @@ class HoneypotManager:
             session.add(incident)
             await session.commit()
 
+        self._increment_incident_count(config.guild_id)
         return incident
 
     async def update_log_status(
@@ -339,12 +383,10 @@ class HoneypotManager:
     ) -> tuple[bool, str | None]:
         """Send the configured incident log embed."""
 
-        channel = self.bot.get_channel(incident.log_channel_id)
-        if channel is None:
-            try:
-                channel = await self.bot.fetch_channel(incident.log_channel_id)
-            except discord.HTTPException as e:
-                return False, shorten(str(e), CONTENT_EXCERPT_WIDTH)
+        try:
+            channel = await self.bot.get_or_fetch_channel(incident.log_channel_id)
+        except discord.HTTPException as e:
+            return False, shorten(str(e), CONTENT_EXCERPT_WIDTH)
 
         if not hasattr(channel, 'send'):
             return False, 'Configured log channel cannot receive messages.'
@@ -487,23 +529,25 @@ class HoneypotManager:
     ) -> discord.TextChannel | None:
         """Resolve a configured startup scan channel."""
 
-        guild = self.bot.get_guild(config.guild_id)
-        if guild is None:
+        try:
+            guild = await self.bot.get_or_fetch_guild(config.guild_id)
+        except discord.HTTPException:
             log.warning(
                 f'Skipping honeypot startup scan for missing guild {config.guild_id}.'
             )
             return None
 
-        channel = guild.get_channel(config.channel_id)
-        if channel is None:
-            try:
-                channel = await guild.fetch_channel(config.channel_id)
-            except discord.HTTPException as e:
-                log.warning(
-                    f'Failed to fetch honeypot channel {config.channel_id} '
-                    f'in guild {guild} ({guild.id}): {e}'
-                )
-                return None
+        try:
+            channel = await self.bot.get_or_fetch_channel(
+                config.channel_id,
+                guild=guild,
+            )
+        except discord.HTTPException as e:
+            log.warning(
+                f'Failed to fetch honeypot channel {config.channel_id} '
+                f'in guild {guild} ({guild.id}): {e}'
+            )
+            return None
 
         if not isinstance(channel, discord.TextChannel):
             log.warning(
