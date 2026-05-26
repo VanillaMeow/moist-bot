@@ -506,6 +506,7 @@ class Owner(commands.Cog):
         env = {
             'ctx': ctx,
             'self': self,
+            'bot': self.bot,
             'guild': ctx.guild,
             'author': ctx.author,
             'client': self.bot,
