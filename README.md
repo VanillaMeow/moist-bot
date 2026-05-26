@@ -1,18 +1,53 @@
-# moist bot
-**moist-bot** is my personal discord bot with a bunch of random features.
+# moist-bot
 
-# About code quality
-This project has been my introduction to Python, GitHub, and programming itself.
+**moist-bot** is my personal Discord bot "framework" with a bunch of random features.<br>
+Currently, it also powers **Fleabot**. The resident Discord bot for the [Fleasion](https://github.com/fleasion/Fleasion) Discord.
 
-The code quality varies from file to file, with many inconsistencies across the project.
-If you are going to use this project as a reference, **I recommend looking at files with recent commits** as those are probably of the best quality.
+***Why is it called moist-bot?***
+<details>
+<summary><i>See here</i></summary>
 
-Some background features of moist-bot have been copied or modified from [RoboDanny](https://github.com/Rapptz/RoboDanny) for ease of development. Credit is (hopefully) given where due.
+On June 2021, 15 year old me decided I wanted to make a Discord bot that replies with "water" when you say "water". From there on out, I've been expanding this bot's codebase to what it is today.
 
-# Inviting
-This bot is not meant to be public and lacks the features to be so. An invitation link does not exist.
+I've decided to keep the name around as it holds sentimental value to me.<br>
+After all, this was my real introduction to Python, GitHub, and programming itself.
 
-# Running
-I don't want people running an instance of this bot, so I **will not** be showing you how to set it up or include the necessary steps and files to do so (such as `requirements.txt`).
+</details>
 
-### ✨Nyah~
+## Inviting
+
+This is not meant to be a public bot. An invitation link does not exist.
+
+## Running
+
+I would rather not people run an instance of this bot, but here goes anyway:
+
+>[!Important]
+>This bot is **ran exclusively from source** with `uv`.
+
+You need to have the following software installed:
+
+- [Git](https://git-scm.com/install/)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+
+```sh
+git clone https://github.com/VanillaMeow/moist-bot.git
+cd moist-bot
+
+# Install all dependencies
+uv sync --locked
+
+# Create the initial database
+uv run alembic upgrade head
+
+# IMPORTANT: Set your bot token in ".env"
+# You can rename a copy of ".env.example" to ".env"
+cp .env.example .env
+
+# Finally, run the bot
+uv run app
+```
+
+## Notes
+
+- Some background features of moist-bot have been copied or modified from [RoboDanny](https://github.com/Rapptz/RoboDanny) for ease of development. Credit is (hopefully) given where due.
