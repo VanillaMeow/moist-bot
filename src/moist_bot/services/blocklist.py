@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, cast
 
@@ -21,7 +22,6 @@ from moist_bot.models import (
 from moist_bot.settings import settings
 
 if TYPE_CHECKING:
-
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from moist_bot.bot import MoistBot
@@ -82,14 +82,6 @@ class BlocklistManager:  # noqa: PLR0904
     """
 
     def __init__(self, bot: MoistBot) -> None:
-        """Create an empty blocklist cache.
-
-        Parameters
-        ----------
-        bot:
-            Bot instance that owns the database/session maker.
-        """
-
         self.bot: MoistBot = bot
         self.global_users: set[int] = set()
         self.guilds: set[int] = set()
@@ -130,19 +122,15 @@ class BlocklistManager:  # noqa: PLR0904
 
         policies_result = await session.execute(select(GuildChannelPolicy))
         channels_result = await session.execute(select(GuildChannelPolicyChannel))
-        permissions_result = await session.execute(
-            select(GuildChannelPolicyPermission)
-        )
+        permissions_result = await session.execute(select(GuildChannelPolicyPermission))
 
-        channel_ids_by_guild: dict[int, set[int]] = {}
+        channel_ids_by_guild: defaultdict[int, set[int]] = defaultdict(set)
         for row in channels_result.scalars().all():
-            channel_ids_by_guild.setdefault(row.guild_id, set()).add(row.channel_id)
+            channel_ids_by_guild[row.guild_id].add(row.channel_id)
 
-        permission_names_by_guild: dict[int, set[str]] = {}
+        permission_names_by_guild: defaultdict[int, set[str]] = defaultdict(set)
         for row in permissions_result.scalars().all():
-            permission_names_by_guild.setdefault(row.guild_id, set()).add(
-                row.permission_name
-            )
+            permission_names_by_guild[row.guild_id].add(row.permission_name)
 
         policies: dict[int, ChannelPolicy] = {}
         for policy in policies_result.scalars().all():
@@ -491,7 +479,7 @@ class BlocklistManager:  # noqa: PLR0904
     def _cache_policy_channel(
         self, guild_id: int, channel_id: int, *, add: bool
     ) -> None:
-        """Update one channel ID in the cached policy for a guild."""
+        """Updates one channel ID in the cached policy for a guild."""
 
         current = self.channel_policies.get(guild_id)
         if current is None:
@@ -599,7 +587,7 @@ class BlocklistManager:  # noqa: PLR0904
     def _cache_policy_permission(
         self, guild_id: int, permission_name: str, *, add: bool
     ) -> None:
-        """Update one permission flag in the cached policy for a guild."""
+        """Updates one permission flag in the cached policy for a guild."""
 
         current = self.channel_policies.get(guild_id)
         if current is None:
@@ -676,9 +664,8 @@ class BlocklistManager:  # noqa: PLR0904
             and channel_id in policy.channel_ids
         ):
             return BlocklistDecision('Channel is denylisted.', 'channel_denylist')
-        if (
-            policy.mode == ChannelPolicyMode.ALLOWLIST
-            and (channel_id is None or channel_id not in policy.channel_ids)
+        if policy.mode == ChannelPolicyMode.ALLOWLIST and (
+            channel_id is None or channel_id not in policy.channel_ids
         ):
             return BlocklistDecision('Channel is not allowlisted.', 'channel_allowlist')
         if policy.permission_names and not self.has_any_permission(
@@ -701,7 +688,10 @@ class BlocklistManager:  # noqa: PLR0904
 
         if permissions is None:
             return False
-        return any(getattr(permissions, permission_name) for permission_name in permission_names)
+        return any(
+            getattr(permissions, permission_name)
+            for permission_name in permission_names
+        )
 
     @classmethod
     def is_policy_command_name(cls, command_name: str | None) -> bool:
@@ -717,8 +707,7 @@ class BlocklistManager:  # noqa: PLR0904
     @staticmethod
     def _can_manage_policy(member: discord.abc.User) -> bool:
         return (
-            isinstance(member, discord.Member)
-            and member.guild_permissions.manage_guild
+            isinstance(member, discord.Member) and member.guild_permissions.manage_guild
         )
 
     @staticmethod
@@ -753,18 +742,15 @@ class BlocklistManager:  # noqa: PLR0904
         if await self.bot.is_owner(ctx.author):
             return None
 
-        guild_id = None if ctx.guild is None else ctx.guild.id
-        channel_id = ctx.channel.id
         command_name = None if ctx.command is None else ctx.command.qualified_name
-        bypass_access_policy = (
-            self._can_manage_policy(ctx.author)
-            and self.is_policy_command_name(command_name)
-        )
+        bypass_access_policy = self._can_manage_policy(
+            ctx.author
+        ) and self.is_policy_command_name(command_name)
 
         return self.check_ids(
             user_id=ctx.author.id,
-            guild_id=guild_id,
-            channel_id=channel_id,
+            guild_id=None if ctx.guild is None else ctx.guild.id,
+            channel_id=ctx.channel.id,
             user_permissions=self._permissions_for_context(ctx),
             bypass_access_policy=bypass_access_policy,
         )
@@ -777,13 +763,12 @@ class BlocklistManager:  # noqa: PLR0904
         if await self.bot.is_owner(interaction.user):
             return None
 
-        member = interaction.user
         command = interaction.command
         command_name = None if command is None else command.qualified_name
-        bypass_access_policy = (
-            self._can_manage_policy(member)
-            and self.is_policy_command_name(command_name)
-        )
+
+        bypass_access_policy = self._can_manage_policy(
+            interaction.user
+        ) and self.is_policy_command_name(command_name)
 
         return self.check_ids(
             user_id=interaction.user.id,
@@ -800,12 +785,13 @@ class BlocklistManager:  # noqa: PLR0904
             channel = self.bot.get_channel(settings.logs_channel_id)
             if channel is None:
                 channel = await self.bot.fetch_channel(settings.logs_channel_id)
-
-            if not hasattr(channel, 'send'):
-                return
-
-            # Whatever the hell is going on with pyright here...
-            messageable = cast('discord.abc.Messageable', channel)
-            await messageable.send(message)
         except discord.HTTPException:
             log.exception('Failed to send blocklist log message.')
+            return
+
+        if not hasattr(channel, 'send'):
+            return
+
+        # Whatever the hell is going on with pyright here...
+        messageable = cast('discord.abc.Messageable', channel)
+        await messageable.send(message)
