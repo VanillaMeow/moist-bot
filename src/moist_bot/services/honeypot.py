@@ -12,6 +12,7 @@ from sqlmodel import col, select
 from moist_bot.models import GuildHoneypotConfig, HoneypotIncident
 from moist_bot.utils.converters import shorten
 from moist_bot.utils.formats import plural
+from moist_bot.utils.message_purge import ChannelPurger
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -45,6 +46,15 @@ class StartupHoneypotBatch:
 
     member: discord.Member
     messages: list[discord.Message]
+
+
+@dataclass(frozen=True, slots=True)
+class SoftbanResult:
+    """Outcome of a honeypot softban attempt."""
+
+    softbanned: bool
+    error: str | None
+    ban_applied: bool
 
 
 class HoneypotManager:
@@ -193,7 +203,7 @@ class HoneypotManager:
         return True
 
     async def delete_config(self, *, guild_id: int) -> bool:
-        """Delete a guild honeypot config while preserving incident history."""
+        """Deletes a guild honeypot config while preserving incident history."""
 
         async with self.bot.db_session_maker() as session:
             result = await session.execute(
@@ -286,7 +296,7 @@ class HoneypotManager:
         member: discord.Member,
         *,
         delete_message_seconds: int,
-    ) -> tuple[bool, str | None]:
+    ) -> SoftbanResult:
         """Ban and unban a member to remove recent messages."""
 
         try:
@@ -299,7 +309,11 @@ class HoneypotManager:
                 f'Failed to ban honeypot user {member} ({member.id}) '
                 f'in guild {member.guild} ({member.guild.id}): {e}'
             )
-            return False, shorten(f'Ban failed: {e}', CONTENT_EXCERPT_WIDTH)
+            return SoftbanResult(
+                softbanned=False,
+                error=shorten(f'Ban failed: {e}', CONTENT_EXCERPT_WIDTH),
+                ban_applied=False,
+            )
 
         try:
             await member.unban(reason=SOFTBAN_REASON)
@@ -308,9 +322,13 @@ class HoneypotManager:
                 f'Failed to unban honeypot user {member} ({member.id}) '
                 f'in guild {member.guild} ({member.guild.id}): {e}'
             )
-            return False, shorten(f'Unban failed: {e}', CONTENT_EXCERPT_WIDTH)
+            return SoftbanResult(
+                softbanned=False,
+                error=shorten(f'Unban failed: {e}', CONTENT_EXCERPT_WIDTH),
+                ban_applied=True,
+            )
 
-        return True, None
+        return SoftbanResult(softbanned=True, error=None, ban_applied=True)
 
     async def _send_log_embed(
         self,
@@ -339,7 +357,9 @@ class HoneypotManager:
                 timestamp=incident.triggered_at,
                 description=incident.content_excerpt,
             )
-            .set_author(name=f'{member.name} ({member.id})', icon_url=member.display_avatar.url)
+            .set_author(
+                name=f'{member.name} ({member.id})', icon_url=member.display_avatar.url
+            )
             .set_footer(text=f'{plural(incident.trigger_count):trigger} from user')
         )
 
@@ -417,7 +437,7 @@ class HoneypotManager:
         """Run the full softban flow for a honeypot trigger."""
 
         # Ban deletion is safer than manual purge because Discord handles scope
-        softbanned, softban_error = await self._softban_member(
+        softban_result = await self._softban_member(
             member,
             delete_message_seconds=delete_message_seconds,
         )
@@ -428,8 +448,8 @@ class HoneypotManager:
             member=member,
             config=config,
             delete_message_seconds=delete_message_seconds,
-            softbanned=softbanned,
-            softban_error=softban_error,
+            softbanned=softban_result.softbanned,
+            softban_error=softban_result.error,
         )
 
     async def handle_message(self, message: discord.Message) -> None:
@@ -572,21 +592,35 @@ class HoneypotManager:
     ) -> int:
         """Deletes scanned honeypot messages after a startup softban."""
 
-        deleted_count = 0
-        failed_count = 0
-        for message in messages:
-            try:
-                await message.delete()
-            except discord.NotFound:
-                continue
-            except discord.HTTPException:
-                failed_count += 1
-            else:
-                deleted_count += 1
+        if not messages:
+            return 0
 
+        channel = cast('discord.abc.Messageable', messages[0].channel)
+        purger = ChannelPurger(channel)
+        deleted = await purger.delete_messages(messages)
+        failed_count = len(messages) - len(deleted)
         if failed_count:
             log.warning(f'Failed to manually delete {failed_count} honeypot messages.')
-        return deleted_count
+        return len(deleted)
+
+    @staticmethod
+    def _startup_messages_requiring_manual_delete(
+        *,
+        messages: list[discord.Message],
+        delete_message_seconds: int,
+        ban_applied: bool,
+    ) -> list[discord.Message]:
+        """Return scanned messages not covered by Discord's ban deletion."""
+
+        if not ban_applied:
+            return messages
+
+        now = discord.utils.utcnow()
+        return [
+            message
+            for message in messages
+            if (now - message.created_at).total_seconds() > delete_message_seconds
+        ]
 
     async def _handle_startup_batch(
         self,
@@ -598,11 +632,18 @@ class HoneypotManager:
 
         oldest_message = min(batch.messages, key=lambda message: message.created_at)
         delete_message_seconds = self._delete_seconds_for_oldest_message(oldest_message)
-        softbanned, softban_error = await self._softban_member(
+        softban_result = await self._softban_member(
             batch.member,
             delete_message_seconds=delete_message_seconds,
         )
-        deleted_count = await self._delete_startup_messages(messages=batch.messages)
+        manual_delete_messages = self._startup_messages_requiring_manual_delete(
+            messages=batch.messages,
+            delete_message_seconds=delete_message_seconds,
+            ban_applied=softban_result.ban_applied,
+        )
+        deleted_count = await self._delete_startup_messages(
+            messages=manual_delete_messages
+        )
         if deleted_count:
             log.debug(
                 f'Deleted {deleted_count} scanned honeypot messages for '
@@ -614,8 +655,8 @@ class HoneypotManager:
             member=batch.member,
             config=config,
             delete_message_seconds=delete_message_seconds,
-            softbanned=softbanned,
-            softban_error=softban_error,
+            softbanned=softban_result.softbanned,
+            softban_error=softban_result.error,
         )
 
     async def run_startup_scan(self) -> None:
