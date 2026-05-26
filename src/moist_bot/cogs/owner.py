@@ -1,4 +1,4 @@
-# ruff: noqa: F401, PLR0904, S102, S307
+# ruff: noqa: F401, S102, S307
 # pyright: reportUnusedImport=false, reportPrivateUsage=false
 
 from __future__ import annotations
@@ -20,8 +20,7 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass
 from importlib.metadata import distribution, packages_distributions
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
-from unicodedata import name as unicodedata_name
+from typing import TYPE_CHECKING, cast
 
 import discord
 import discord.utils
@@ -35,15 +34,15 @@ from moist_bot.bot import (
     normalize_extension_name,
 )
 from moist_bot.constants import COGS_FOLDER_PATH, ROOT_PACKAGE
-from moist_bot.settings import settings
-from moist_bot.utils.converters import get_media_from_ctx
 from moist_bot.utils.formats import format_file_list, format_process_error
 from moist_bot.utils.process import run_git, run_process
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from moist_bot.bot import MoistBot
     from moist_bot.cogs.stats import Stats
-    from moist_bot.utils.context import Context, GuildContext
+    from moist_bot.utils.context import Context
 
 
 log = logging.getLogger('discord.' + __name__)
@@ -61,15 +60,6 @@ class ReloadTarget:
     display_name: str
     depth: int
     is_extension: bool
-
-
-# fmt: off
-class StickerFlags(commands.FlagConverter, prefix='--', delimiter=' ', case_insensitive=True):
-    alias: str = commands.flag(aliases=['name', 'n', 'a'])
-    description: str = commands.flag(aliases=['desc', 'd'], default='No description provided.')
-    related_emoji: str = commands.flag(aliases=['emoji', 'e'])
-    sticker_link: str | None = commands.flag(aliases=['sticker', 'link', 's'])
-# fmt: on
 
 
 class Owner(commands.Cog):
