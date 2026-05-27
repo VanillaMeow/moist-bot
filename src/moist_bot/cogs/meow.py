@@ -9,6 +9,8 @@ import discord
 import pyperclip
 from discord.ext import commands
 
+from moist_bot.settings import settings
+
 pyperclip.determine_clipboard()
 
 if TYPE_CHECKING:
@@ -64,7 +66,7 @@ class Meow(commands.Cog):
             return await ctx.reply(":warning: I can't meow that long >~<")
 
         # Automatically copy the contents to the clipboard for bot owners :3
-        if await self.bot.is_owner(ctx.author):
+        if not settings.use_fleabot and await self.bot.is_owner(ctx.author):
             pyperclip.copy(random_sentence)
 
         await ctx.reply(random_sentence)
