@@ -20,13 +20,17 @@ RESOLUTION = 150, 150
 PETPET_FRAMES_PATH = ASSETS_FOLDER_PATH / 'petpet'
 PETPET_FRAMES: list[Image.Image] = []
 
-for frame in PETPET_FRAMES_PATH.iterdir():
-    petpet_frame = (
-        Image.open(frame)
-        .convert('RGBA')
-        .resize(RESOLUTION, resample=Image.Resampling.BICUBIC)
-    )
-    PETPET_FRAMES.append(petpet_frame)
+
+async def load_petpet_frames() -> None:
+    frame_paths = [frame async for frame in PETPET_FRAMES_PATH.iterdir()]
+
+    for frame in sorted(frame_paths, key=lambda path: path.name):
+        petpet_frame = (
+            Image.open(str(frame))
+            .convert('RGBA')
+            .resize(RESOLUTION, resample=Image.Resampling.BICUBIC)
+        )
+        PETPET_FRAMES.append(petpet_frame)
 
 
 class PetPetCreator:
@@ -178,9 +182,7 @@ class PetPet(commands.Cog):
             await user.display_avatar.with_format('png').save(fp=img_buffer)
 
         # Avoid blocking
-        img_buffer = await self.execute(
-            self.bot.executor, self._get_buffer, img_buffer
-        )
+        img_buffer = await self.execute(self.bot.executor, self._get_buffer, img_buffer)
 
         # Send image
         file = discord.File(fp=img_buffer, filename='petpet.gif')
@@ -188,4 +190,7 @@ class PetPet(commands.Cog):
 
 
 async def setup(bot: MoistBot) -> None:
+    if not PETPET_FRAMES:
+        await load_petpet_frames()
+
     await bot.add_cog(PetPet(bot))

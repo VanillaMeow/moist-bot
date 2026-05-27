@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
+
+from anyio import Path
 
 # Meta
 ROOT_PACKAGE = __package__.split('.', maxsplit=1)[0] if __package__ else None
-ROOT_PATH = Path(__file__).parent.resolve()
+ROOT_PATH = Path(__file__).parent
 COGS_FOLDER_PATH = ROOT_PATH / 'cogs'
 ASSETS_FOLDER_PATH = ROOT_PATH / 'assets'
 

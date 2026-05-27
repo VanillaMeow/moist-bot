@@ -22,9 +22,9 @@ from .utils.context import Context, MoistCommandTree
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from datetime import datetime
-    from pathlib import Path
     from typing import Any, Unpack
 
+    from anyio import Path
     from discord import Message, app_commands
     from discord.ext.commands.bot import _BotOptions  # type: ignore[]
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -72,12 +72,13 @@ def is_extension_file(path: Path) -> bool:
     return path.suffix == '.py' and path.stem != '__init__'
 
 
-def discover_extension_names() -> tuple[str, ...]:
-    return tuple(
-        sorted(
-            file.stem for file in COGS_FOLDER_PATH.iterdir() if is_extension_file(file)
-        )
-    )
+async def discover_extension_names() -> tuple[str, ...]:
+    extension_names = [
+        file.stem
+        async for file in COGS_FOLDER_PATH.iterdir()
+        if is_extension_file(file)
+    ]
+    return tuple(sorted(extension_names))
 
 
 def normalize_extension_name(name: str) -> str:
@@ -147,7 +148,7 @@ class MoistBot(commands.Bot):
 
     async def load_cogs(self) -> None:
         extension_names = (
-            discover_extension_names()
+            await discover_extension_names()
             if self.startup_extensions is None
             else self.startup_extensions
         )

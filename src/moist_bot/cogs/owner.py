@@ -19,12 +19,12 @@ import traceback
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 from importlib.metadata import distribution, packages_distributions
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import discord
 import discord.utils
 import psutil
+from anyio import Path
 from discord.ext import commands
 from jishaku.modules import package_version
 
@@ -48,7 +48,10 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 
-PROJECT_ROOT_PATH = str(COGS_FOLDER_PATH.parents[2])
+PROJECT_ROOT = COGS_FOLDER_PATH.parents[2]
+PROJECT_ROOT_PATH = str(PROJECT_ROOT)
+ROOT_PACKAGE_PROJECT_PATH = COGS_FOLDER_PATH.parent.relative_to(PROJECT_ROOT)
+COGS_PROJECT_PATH = COGS_FOLDER_PATH.relative_to(PROJECT_ROOT)
 DEPENDENCY_FILES = frozenset({'pyproject.toml', 'uv.lock'})
 
 
@@ -232,16 +235,19 @@ class Owner(commands.Cog):
             Whether a process restart is needed for the changes to apply.
         """
 
-        # TODO(leah): don't hardcode paths
-        return any(
-            file in DEPENDENCY_FILES
-            or (
-                file.startswith('src/moist_bot/')
-                and file.endswith('.py')
-                and not file.startswith('src/moist_bot/cogs/')
-            )
-            for file in changed_files
-        )
+        for file in changed_files:
+            if file in DEPENDENCY_FILES:
+                return True
+
+            path = Path(file)
+            if (
+                path.is_relative_to(ROOT_PACKAGE_PROJECT_PATH)
+                and path.suffix == '.py'
+                and not path.is_relative_to(COGS_PROJECT_PATH)
+            ):
+                return True
+
+        return False
 
     @staticmethod
     def needs_uv_sync(changed_files: list[str]) -> bool:
