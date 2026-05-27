@@ -27,6 +27,8 @@ import psutil
 from anyio import Path
 from discord.ext import commands
 from jishaku.modules import package_version
+from sqlalchemy import delete
+from sqlmodel import select
 
 from moist_bot.bot import (
     COGS_PACKAGE_NAME,
@@ -41,6 +43,8 @@ from moist_bot.constants import (
     ROOT_PACKAGE,
     ROOT_PACKAGE_PROJECT_PATH,
 )
+from moist_bot.models import RESTART_NOTICE_ID, RestartNotice
+from moist_bot.utils.converters import normalize_datetime
 from moist_bot.utils.formats import format_file_list, format_process_error
 from moist_bot.utils.process import run_git, run_process
 
@@ -80,6 +84,7 @@ class Owner(commands.Cog):
         self.process = psutil.Process()
         self.sessions: set[int] = set()
         self.last_ext: str = 'cmds'
+        self._handled_restart_notice: bool = False
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -89,6 +94,55 @@ class Owner(commands.Cog):
         if not await ctx.bot.is_owner(ctx.author):
             raise commands.NotOwner('You do not own this bot.')
         return True
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        """Edit the restart notice once the bot is available again."""
+
+        if self._handled_restart_notice:
+            return
+
+        self._handled_restart_notice = True
+        async with self.bot.db_session_maker() as session:
+            result = await session.execute(
+                select(RestartNotice).where(RestartNotice.id == RESTART_NOTICE_ID)
+            )
+            notice = result.scalar_one_or_none()
+            if notice is None:
+                return
+
+            await session.delete(notice)
+            await session.commit()
+
+        try:
+            message = await self.get_restart_notice_message(notice)
+            requested_at = normalize_datetime(notice.requested_at)
+            elapsed = max((discord.utils.utcnow() - requested_at).total_seconds(), 0.0)
+            await message.edit(
+                content=f':white_check_mark: Restarted in {elapsed:.2f}s.'
+            )
+        except discord.DiscordException:
+            log.exception(
+                f'Failed to update restart notice message {notice.message_id} in channel {notice.channel_id}.'
+            )
+
+    async def get_restart_notice_message(
+        self,
+        notice: RestartNotice,
+    ) -> discord.Message:
+        """Return the Discord message for a stored restart notice."""
+
+        if notice.guild_id is None:
+            channel = await self.bot.get_or_fetch_channel(notice.channel_id)
+        else:
+            guild = await self.bot.get_or_fetch_guild(notice.guild_id)
+            channel = await self.bot.get_or_fetch_channel(
+                notice.channel_id,
+                guild=guild,
+            )
+
+        messageable = cast('discord.abc.Messageable', channel)
+        return await self.bot.get_or_fetch_message(messageable, notice.message_id)
 
     @staticmethod
     def cleanup_code(content: str) -> str:
@@ -531,7 +585,20 @@ class Owner(commands.Cog):
     async def restart(self, ctx: Context) -> None:
         """Restart the bot process."""
 
-        await ctx.reply(':arrows_counterclockwise: Restarting...')
+        message = await ctx.reply(':arrows_counterclockwise: Restarting...')
+        guild_id = ctx.guild.id if ctx.guild is not None else None
+        async with self.bot.db_session_maker() as session:
+            await session.execute(delete(RestartNotice))
+            session.add(
+                RestartNotice(
+                    guild_id=guild_id,
+                    channel_id=message.channel.id,
+                    message_id=message.id,
+                    requested_by_id=ctx.author.id,
+                )
+            )
+            await session.commit()
+
         log.warning(f'Restart requested by {ctx.author} ({ctx.author.id}).')
         argv = [sys.executable, *sys.argv]
         try:

@@ -24,9 +24,11 @@ from .honeypot import (
     HoneypotIncident,
     HoneypotUserStats,
 )
+from .runtime import RESTART_NOTICE_ID, RestartNotice
 
 __all__ = (
     'BLOCKLIST_SENTINEL_ID',
+    'RESTART_NOTICE_ID',
     'BlocklistEntry',
     'BlocklistScope',
     'BlocklistSource',
@@ -46,4 +48,5 @@ __all__ = (
     'HoneypotGuildStats',
     'HoneypotIncident',
     'HoneypotUserStats',
+    'RestartNotice',
 )
