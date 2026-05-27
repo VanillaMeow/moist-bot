@@ -7,7 +7,7 @@ Currently, it also powers **Fleabot**, the bot for the [Fleasion](https://github
 <details>
 <summary><i>See here</i></summary>
 
-> On June 2021, 15 year old me decided I wanted to make a Discord bot that replies with "water" when you say "water". From there on out, I've > been expanding this bot's codebase to what it is today.
+> On June 2021, 15 year old me decided I wanted to make a Discord bot that replies with "water" when you say "water". From there on out, I've been expanding this bot's codebase to what it is today.
 >
 > I've decided to keep the name around as it holds sentimental value to me.<br>
 > After all, this was my real introduction to Python, GitHub, and programming itself.
