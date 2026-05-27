@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
+from inspect import cleandoc
 from typing import TYPE_CHECKING
 
 import discord
@@ -10,6 +11,7 @@ from sqlmodel import col
 
 from moist_bot.models import HoneypotIncident
 from moist_bot.services import honeypot as honeypot_service
+from moist_bot.settings import settings
 from moist_bot.utils import formats
 from moist_bot.utils.converters import normalize_datetime, shorten
 from moist_bot.utils.formats import plural
@@ -27,7 +29,24 @@ if TYPE_CHECKING:
 INCIDENT_CONTENT_WIDTH = 36
 INCIDENT_PAGE_SIZE = 8
 INCIDENT_PAGE_SIZE_MAX = 15
-HONEYPOT_ALERT_DESCRIPTION = 'This channel is monitored. Sending messages here will trigger automatic moderation.'
+
+UD = '\N{VARIATION SELECTOR-16}'  # Discord unicode variation
+ALERT = (
+    '<a:alert:1509312153713250314>'
+    if settings.use_fleabot
+    else '<a:alert:1509313613284769833>'
+)
+
+HONEYPOT_ALERT_CONTENT = cleandoc(f"""
+# {ALERT}
+# \N{WARNING SIGN}{UD} DO NOT SEND ANY MESSAGES HERE. YOU WILL BE __IRREVERSIBLY BANNED.__ \N{HAMMER}
+
+\N{NO ENTRY SIGN} THIS IS A TRAP FOR COMPROMISED ACCOUNTS.
+\N{INFORMATION SOURCE}{UD} Messages posted here will be **automatically** deleted, and the sender will be **automatically** banned.
+
+**YOU HAVE BEEN WARNED. INTENTIONALLY SENDING MESSAGES WILL GET YOU BANNED WITH NO APPEALS.**
+# {ALERT}
+""")
 
 
 async def can_manage_honeypot(ctx: GuildContext) -> bool:
@@ -71,7 +90,7 @@ class HoneypotAlertEmbed(discord.Embed):
     def __init__(self) -> None:
         super().__init__(
             title='\N{HONEY POT} Honeypot Alert',
-            description=HONEYPOT_ALERT_DESCRIPTION,
+            description=HONEYPOT_ALERT_CONTENT,
             colour=discord.Colour.gold(),
         )
 
@@ -236,9 +255,6 @@ async def edit_honeypot_alert_message(
     ctx: GuildContext,
     channel: discord.TextChannel,
     message_id: int,
-    *,
-    embed: discord.Embed,
-    allowed_mentions: discord.AllowedMentions,
 ) -> tuple[discord.Message | None, bool]:
     """Edit an existing alert message or report why it cannot be edited."""
 
@@ -252,9 +268,8 @@ async def edit_honeypot_alert_message(
 
     try:
         await message.edit(
-            content=None,
-            embed=embed,
-            allowed_mentions=allowed_mentions,
+            content=HONEYPOT_ALERT_CONTENT,
+            allowed_mentions=discord.AllowedMentions.none(),
         )
     except discord.HTTPException:
         await ctx.reply(':warning: I cannot edit the stored alert message.')
@@ -266,14 +281,14 @@ async def edit_honeypot_alert_message(
 async def send_honeypot_alert_message(
     ctx: GuildContext,
     channel: discord.TextChannel,
-    *,
-    embed: discord.Embed,
-    allowed_mentions: discord.AllowedMentions,
 ) -> discord.Message | None:
     """Send a new honeypot alert message."""
 
     try:
-        return await channel.send(embed=embed, allowed_mentions=allowed_mentions)
+        return await channel.send(
+            content=HONEYPOT_ALERT_CONTENT,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
     except discord.HTTPException:
         await ctx.reply(':warning: I cannot send messages in the honeypot channel.')
         return None
@@ -395,11 +410,7 @@ class Honeypot(commands.Cog):
 
         if config.alert_message_id is not None and not flags.force_new:
             message, can_continue = await edit_honeypot_alert_message(
-                ctx,
-                channel,
-                config.alert_message_id,
-                embed=HoneypotAlertEmbed(),
-                allowed_mentions=discord.AllowedMentions.none(),
+                ctx, channel, config.alert_message_id
             )
             if message is not None:
                 await self.bot.honeypot.set_alert_message_id(
@@ -414,12 +425,7 @@ class Honeypot(commands.Cog):
             if not can_continue:
                 return
 
-        message = await send_honeypot_alert_message(
-            ctx,
-            channel,
-            embed=HoneypotAlertEmbed(),
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
+        message = await send_honeypot_alert_message(ctx, channel)
         if message is None:
             return
 
