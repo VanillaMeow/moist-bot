@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
+    from anyio import Path
+
 
 """
 Most of this is taken/edited from:
@@ -141,7 +143,7 @@ def format_process_error(command: str, stdout: str, stderr: str) -> str:
     return f'```sh\n{output}\n```'
 
 
-def format_file_list(files: list[str], *, limit: int = 1500) -> str:
+def format_file_list(files: Iterable[Path], *, limit: int = 1500) -> str:
     """Format a changed-file list without exceeding Discord's message limit.
 
     Parameters

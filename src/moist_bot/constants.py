@@ -7,8 +7,14 @@ from anyio import Path
 # Meta
 ROOT_PACKAGE = __package__.split('.', maxsplit=1)[0] if __package__ else None
 ROOT_PATH = Path(__file__).parent
+PROJECT_ROOT_PATH = ROOT_PATH.parents[1]
+ROOT_PACKAGE_PROJECT_PATH = ROOT_PATH.relative_to(PROJECT_ROOT_PATH)
 COGS_FOLDER_PATH = ROOT_PATH / 'cogs'
+COGS_PROJECT_PATH = COGS_FOLDER_PATH.relative_to(PROJECT_ROOT_PATH)
 ASSETS_FOLDER_PATH = ROOT_PATH / 'assets'
+MIGRATIONS_FOLDER_PATH = ROOT_PATH / 'migrations'
+MIGRATIONS_PROJECT_PATH = MIGRATIONS_FOLDER_PATH.relative_to(PROJECT_ROOT_PATH)
+DEPENDENCY_FILES = frozenset({Path('pyproject.toml'), Path('uv.lock')})
 
 # Database
 DB_NAME = 'moist.db'

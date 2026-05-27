@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from anyio import Path
 
 
-async def run_process(*command: str, cwd: str | None = None) -> tuple[int, str, str]:
+async def run_process(*command: str, cwd: str | Path | None = None) -> tuple[int, str, str]:
     """Run a subprocess and capture its output.
 
     Parameters
@@ -21,7 +25,7 @@ async def run_process(*command: str, cwd: str | None = None) -> tuple[int, str, 
 
     process = await asyncio.create_subprocess_exec(
         *command,
-        cwd=cwd,
+        cwd=str(cwd) if cwd is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -33,7 +37,7 @@ async def run_process(*command: str, cwd: str | None = None) -> tuple[int, str, 
     )
 
 
-async def run_git(*args: str, cwd: str | None = None) -> tuple[int, str, str]:
+async def run_git(*args: str, cwd: str | Path | None = None) -> tuple[int, str, str]:
     """Run a git command and capture its output.
 
     Parameters

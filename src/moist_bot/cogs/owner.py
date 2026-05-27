@@ -19,7 +19,7 @@ import traceback
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 from importlib.metadata import distribution, packages_distributions
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import discord
 import discord.utils
@@ -33,7 +33,14 @@ from moist_bot.bot import (
     extension_module_name,
     normalize_extension_name,
 )
-from moist_bot.constants import COGS_FOLDER_PATH, ROOT_PACKAGE
+from moist_bot.constants import (
+    COGS_PROJECT_PATH,
+    DEPENDENCY_FILES,
+    MIGRATIONS_PROJECT_PATH,
+    PROJECT_ROOT_PATH,
+    ROOT_PACKAGE,
+    ROOT_PACKAGE_PROJECT_PATH,
+)
 from moist_bot.utils.formats import format_file_list, format_process_error
 from moist_bot.utils.process import run_git, run_process
 
@@ -48,11 +55,8 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 
-PROJECT_ROOT = COGS_FOLDER_PATH.parents[2]
-PROJECT_ROOT_PATH = str(PROJECT_ROOT)
-ROOT_PACKAGE_PROJECT_PATH = COGS_FOLDER_PATH.parent.relative_to(PROJECT_ROOT)
-COGS_PROJECT_PATH = COGS_FOLDER_PATH.relative_to(PROJECT_ROOT)
-DEPENDENCY_FILES = frozenset({'pyproject.toml', 'uv.lock'})
+UV_COMMAND: Final = ('uv', 'sync', '--locked')
+ALEMBIC_COMMAND: Final = ('uv', 'run', 'alembic', 'upgrade', 'head')
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +130,7 @@ class Owner(commands.Cog):
         self.last_ext = ext
 
     @staticmethod
-    def module_name_from_project_path(file: str) -> str | None:
+    def module_name_from_project_path(file: Path) -> str | None:
         """Convert a project-relative Python path into an import path.
 
         Parameters
@@ -140,12 +144,11 @@ class Owner(commands.Cog):
             The import path for Python files under ``src``.
         """
 
-        path = Path(file)
-        if path.suffix != '.py':
+        if file.suffix != '.py':
             return None
 
         try:
-            source_path = path.relative_to('src')
+            source_path = file.relative_to('src')
         except ValueError:
             return None
 
@@ -159,7 +162,7 @@ class Owner(commands.Cog):
 
         return '.'.join(source_path.parts)
 
-    def find_reload_targets(self, changed_files: list[str]) -> list[ReloadTarget]:
+    def find_reload_targets(self, changed_files: list[Path]) -> list[ReloadTarget]:
         """Find changed cog modules that can be reloaded in-process.
 
         Parameters
@@ -221,7 +224,7 @@ class Owner(commands.Cog):
         return target.module in sys.modules
 
     @staticmethod
-    def needs_restart(changed_files: list[str]) -> bool:
+    def needs_restart(changed_files: list[Path]) -> bool:
         """Return whether changed files require a full process restart.
 
         Parameters
@@ -239,18 +242,17 @@ class Owner(commands.Cog):
             if file in DEPENDENCY_FILES:
                 return True
 
-            path = Path(file)
             if (
-                path.is_relative_to(ROOT_PACKAGE_PROJECT_PATH)
-                and path.suffix == '.py'
-                and not path.is_relative_to(COGS_PROJECT_PATH)
+                file.is_relative_to(ROOT_PACKAGE_PROJECT_PATH)
+                and file.suffix == '.py'
+                and not file.is_relative_to(COGS_PROJECT_PATH)
             ):
                 return True
 
         return False
 
     @staticmethod
-    def needs_uv_sync(changed_files: list[str]) -> bool:
+    def needs_uv_sync(changed_files: list[Path]) -> bool:
         """Return whether dependency files changed during the pull.
 
         Parameters
@@ -265,6 +267,25 @@ class Owner(commands.Cog):
         """
 
         return any(file in DEPENDENCY_FILES for file in changed_files)
+
+    @staticmethod
+    def needs_alembic_upgrade(changed_files: list[Path]) -> bool:
+        """Return whether database migrations changed during the pull.
+
+        Parameters
+        ----------
+        changed_files:
+            Project-relative paths changed by the update.
+
+        Returns
+        -------
+        bool
+            Whether ``uv run alembic upgrade head`` should be run.
+        """
+
+        return any(
+            file.is_relative_to(MIGRATIONS_PROJECT_PATH) for file in changed_files
+        )
 
     async def reload_target(self, target: ReloadTarget) -> None:
         """Reload a changed cog or nested cog helper module.
@@ -353,20 +374,38 @@ class Owner(commands.Cog):
                 )
                 return
 
-            changed_files = [file for file in diff_stdout.splitlines() if file.strip()]
+            changed_files = [
+                Path(file) for file in diff_stdout.splitlines() if file.strip()
+            ]
             targets = self.find_reload_targets(changed_files)
             restart_required = self.needs_restart(changed_files)
 
             # Update the virtual environment when dependency metadata changed
             if self.needs_uv_sync(changed_files):
-                sync_status, sync_stdout, sync_stderr = await run_process(
-                    'uv', 'sync', '--locked', cwd=PROJECT_ROOT_PATH
+                status, stdout, stderr = await run_process(
+                    *UV_COMMAND, cwd=PROJECT_ROOT_PATH
                 )
-                if sync_status != 0:
+                if status != 0:
+                    command_text = ' '.join(UV_COMMAND)
                     await ctx.reply(
-                        ':anger: `uv sync --locked` failed after pulling updates.\n'
+                        f':anger: `{command_text}` failed after pulling updates.\n'
+                        + format_process_error(command_text, stdout, stderr)
+                    )
+                    return
+
+            if self.needs_alembic_upgrade(changed_files):
+                status, stdout, stderr = await run_process(
+                    *ALEMBIC_COMMAND,
+                    cwd=PROJECT_ROOT_PATH,
+                )
+                if status != 0:
+                    command_text = ' '.join(ALEMBIC_COMMAND)
+                    await ctx.reply(
+                        f':anger: `{command_text}` failed after pulling updates.\n'
                         + format_process_error(
-                            'uv sync --locked', sync_stdout, sync_stderr
+                            command_text,
+                            stdout,
+                            stderr,
                         )
                     )
                     return
