@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Unpack
+from typing import TYPE_CHECKING
 
+import discord
 from discord.ext import commands
 
 from moist_bot.bot import MoistBot
 from moist_bot.settings import settings
 
 if TYPE_CHECKING:
-    from typing import Final
+    from typing import Final, Unpack
 
     from discord import Message
 
@@ -26,7 +27,7 @@ FLEABOT_EXTENSIONS: Final = (
     'meta',
     'jsk',
 )
-BOT_PREFIXES = ('fb ', 'Fb ')
+BOT_PREFIXES: Final = ('fb ', 'Fb ')
 
 
 def _get_prefix(bot: commands.Bot, message: Message) -> list[str]:
@@ -42,3 +43,9 @@ class FleaBot(MoistBot):
         self, token: str = settings.fleabot_token, *, reconnect: bool = True
     ) -> None:
         await super().start(token=token, reconnect=reconnect)
+
+    async def get_presence(self) -> discord.BaseActivity:
+        return discord.Activity(
+            type=discord.ActivityType.listening,
+            name='sata andagi',
+        )

@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
-from typing import TYPE_CHECKING, Any, Unpack, cast, overload
+from typing import TYPE_CHECKING, cast, overload
 
 import aiohttp
 import discord
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from datetime import datetime
     from pathlib import Path
+    from typing import Any, Unpack
 
     from discord import Message, app_commands
     from discord.ext.commands.bot import _BotOptions  # type: ignore[]
@@ -189,13 +190,21 @@ class MoistBot(commands.Bot):
 
         log.info('Bot closed.')
 
+    async def get_presence(self) -> discord.BaseActivity:
+        guilds = len(self.guilds)
+        return discord.Game(name=f'with {guilds} moisturized servers.')
+
     async def on_ready(self) -> None:
+        await self.change_presence(activity=await self.get_presence())
+
+        # Log connection
         if self.started_at == DATETIME_NEVER:
             self.started_at = discord.utils.utcnow()
             log.info(f'Connected as {self.user}')
         else:
             log.info('Reconnected after disconnect!')
 
+        # Sync application commands
         if not self.synced:
             await self.wait_until_ready()
             await self.tree.sync(guild=None)
