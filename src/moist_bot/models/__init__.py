@@ -25,6 +25,7 @@ from .honeypot import (
     HoneypotUserStats,
 )
 from .runtime import RESTART_NOTICE_ID, RestartNotice
+from .socket_event_stats import SocketEventStats
 
 __all__ = (
     'BLOCKLIST_SENTINEL_ID',
@@ -49,4 +50,5 @@ __all__ = (
     'HoneypotIncident',
     'HoneypotUserStats',
     'RestartNotice',
+    'SocketEventStats',
 )

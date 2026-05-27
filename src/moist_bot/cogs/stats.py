@@ -21,6 +21,7 @@ from moist_bot.models import (
     CommandUsageGuildCount,
     CommandUsageStats,
     CommandUsageUserCount,
+    SocketEventStats,
 )
 from moist_bot.utils import formats
 from moist_bot.utils.converters import normalize_datetime, shorten
@@ -219,16 +220,31 @@ class Stats(commands.Cog):
 
         self._batch_lock = asyncio.Lock()
         self._data_batch: list[CommandUsage] = []
+        self._socket_stats_batch: Counter[str] = Counter()
 
         self.command_stats: Counter[str] = Counter()
         self.command_types_used: Counter[bool] = Counter()
         self.socket_stats: Counter[str] = Counter()
-
-        self.bulk_insert_loop.start()
+        self._total_socket_events: int = 0
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{BAR CHART}')
+
+    @property
+    def total_socket_events(self) -> int:
+        return self._total_socket_events
+
+    async def cog_load(self) -> None:
+        async with self.bot.db_session_maker() as session:
+            total_socket_events = await SocketEventStats.total_events_count(session)
+
+        async with self._batch_lock:
+            self._total_socket_events = total_socket_events + sum(
+                self._socket_stats_batch.values()
+            )
+
+        self.bulk_insert_loop.start()
 
     async def cog_unload(self) -> None:
         self.bulk_insert_loop.cancel()
@@ -241,19 +257,31 @@ class Stats(commands.Cog):
             await self.bulk_insert()
 
     async def bulk_insert(self) -> None:
-        if not self._data_batch:
+        if not self._data_batch and not self._socket_stats_batch:
             return
 
         async with self.bot.db_session_maker() as session:
-            session.add_all(self._data_batch)
-            await session.flush()
-            await CommandUsageStats.upsert_usage_batch(session, self._data_batch)
+            if self._data_batch:
+                session.add_all(self._data_batch)
+                await session.flush()
+                await CommandUsageStats.upsert_usage_batch(session, self._data_batch)
+
+            await SocketEventStats.upsert_event_batch(
+                session,
+                self._socket_stats_batch,
+            )
             await session.commit()
 
         total = len(self._data_batch)
         if total > 1:
-            log.info('Registered %s commands to the database.', total)
+            log.info(f'Registered {total} commands to the database.')
+
+        socket_total = sum(self._socket_stats_batch.values())
+        if socket_total > 1:
+            log.info(f'Registered {socket_total} socket events to the database.')
+
         self._data_batch.clear()
+        self._socket_stats_batch.clear()
 
     async def register_command(
         self,
@@ -332,6 +360,9 @@ class Stats(commands.Cog):
     @commands.Cog.listener()
     async def on_socket_event_type(self, event_type: str) -> None:
         self.socket_stats[event_type] += 1
+        async with self._batch_lock:
+            self._socket_stats_batch[event_type] += 1
+            self._total_socket_events += 1
 
     @staticmethod
     def format_count_rows(

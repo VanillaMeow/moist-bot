@@ -827,10 +827,12 @@ class Owner(commands.Cog):
         stats_cog = self.bot.get_cog('Stats')
         commands_run = 0
         socket_events = 0
+        total_socket_events = 0
         if stats_cog is not None:
             stats = cast('Stats', stats_cog)
             commands_run = sum(stats.command_stats.values())
             socket_events = sum(stats.socket_stats.values())
+            total_socket_events = stats.total_socket_events
 
         embed = (
             discord.Embed(
@@ -868,7 +870,8 @@ class Owner(commands.Cog):
             .add_field(
                 name='Session Counters',
                 value=f'Commands run: {commands_run!s}\n'
-                f'Socket events: {socket_events!s}',
+                f'Socket events: {socket_events!s}\n'
+                f'Total socket events: {total_socket_events!s}',
                 inline=True,
             )
             .add_field(
