@@ -120,6 +120,12 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
+[dependency-groups]
+dev = [
+    "pyright>=1.1.409",
+    "ruff>=0.15.14",
+]
+
 [tool.ruff.lint.isort]
 split-on-trailing-comma = true
 combine-as-imports = true
