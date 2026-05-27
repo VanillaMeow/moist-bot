@@ -226,6 +226,30 @@ class HoneypotManager:
     async def disable_config(self, *, guild_id: int, updated_by_id: int) -> bool:
         """Disable a guild honeypot config if one exists."""
 
+        return await self.set_config_enabled(
+            guild_id=guild_id,
+            enabled=False,
+            updated_by_id=updated_by_id,
+        )
+
+    async def enable_config(self, *, guild_id: int, updated_by_id: int) -> bool:
+        """Enable a guild honeypot config if one exists."""
+
+        return await self.set_config_enabled(
+            guild_id=guild_id,
+            enabled=True,
+            updated_by_id=updated_by_id,
+        )
+
+    async def set_config_enabled(
+        self,
+        *,
+        guild_id: int,
+        enabled: bool,
+        updated_by_id: int,
+    ) -> bool:
+        """Set whether a guild honeypot config is enabled if one exists."""
+
         async with self.bot.db_session_maker() as session:
             result = await session.execute(
                 select(GuildHoneypotConfig).where(
@@ -236,7 +260,7 @@ class HoneypotManager:
             if config is None:
                 return False
 
-            config.enabled = False
+            config.enabled = enabled
             config.updated_at = discord.utils.utcnow()
             config.updated_by_id = updated_by_id
             await session.flush()

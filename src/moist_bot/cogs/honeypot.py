@@ -438,21 +438,36 @@ class Honeypot(commands.Cog):
             f':white_check_mark: Sent honeypot alert message: {message.jump_url}'
         )
 
-    @honeypot.command(name='disable')
-    async def honeypot_disable(self, ctx: GuildContext) -> None:
-        """Disable this server's honeypot."""
+    @honeypot.command(name='toggle', aliases=['enable', 'disable'])
+    async def honeypot_toggle(self, ctx: GuildContext) -> None:
+        """Toggle this server's honeypot."""
 
-        disabled = await self.bot.honeypot.disable_config(
-            guild_id=ctx.guild.id,
-            updated_by_id=ctx.author.id,
-        )
-        if not disabled:
+        config = self.bot.honeypot.get_config(ctx.guild.id)
+        if config is None:
             await ctx.reply(
                 ':warning: This server does not have a honeypot configured.'
             )
             return
 
-        await ctx.reply(':white_check_mark: Honeypot disabled.')
+        invoked_with = ctx.invoked_with.lower() if ctx.invoked_with else 'toggle'
+        should_enable = invoked_with == 'enable' or (
+            invoked_with != 'disable' and not config.enabled
+        )
+
+        if should_enable:
+            await self.bot.honeypot.enable_config(
+                guild_id=ctx.guild.id,
+                updated_by_id=ctx.author.id,
+            )
+            action = 'enabled'
+        else:
+            await self.bot.honeypot.disable_config(
+                guild_id=ctx.guild.id,
+                updated_by_id=ctx.author.id,
+            )
+            action = 'disabled'
+
+        await ctx.reply(f':white_check_mark: Honeypot {action}.')
 
     @honeypot.command(name='show')
     async def honeypot_show(self, ctx: GuildContext) -> None:
