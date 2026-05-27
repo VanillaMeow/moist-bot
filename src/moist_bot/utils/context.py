@@ -122,9 +122,9 @@ class Context(commands.Context[MoistBot]):
     @staticmethod
     def tick(opt: bool | None, label: str | None = None) -> str:
         lookup = {
-            True: '<:greenTick:1509282775692218390>',
+            True: '<:greenTick:1509282598114037950>',
             False: '<:redTick:1509282740535689267>',
-            None: '<:greyTick:1509282598114037950>',
+            None: '<:greyTick:1509282775692218390>',
         }
         emoji = lookup.get(opt, '<:redTick:330090723011592193>')
         if label is not None:
