@@ -745,12 +745,20 @@ class HoneypotManager:
             delete_message_seconds=delete_message_seconds,
             ban_applied=punishment.ban_applied,
         )
-        deleted_count = await self._delete_scan_messages(
+        ban_deleted_count = len(batch.messages) - len(manual_delete_messages)
+        manual_deleted_count = await self._delete_scan_messages(
             messages=manual_delete_messages
         )
-        if deleted_count:
+        deleted_count = ban_deleted_count + manual_deleted_count
+        if manual_deleted_count:
             log.debug(
-                f'Deleted {deleted_count} scanned honeypot messages for '
+                f'Manually deleted {manual_deleted_count} scanned honeypot messages '
+                f'for {batch.member} ({batch.member.id}).'
+            )
+        if ban_deleted_count:
+            log.debug(
+                f'Discord ban deletion covered {ban_deleted_count} scanned '
+                f'honeypot messages for '
                 f'{batch.member} ({batch.member.id}).'
             )
 
