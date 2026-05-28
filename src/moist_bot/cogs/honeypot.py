@@ -440,7 +440,9 @@ class Honeypot(commands.Cog):
 
     @honeypot.command(name='toggle', aliases=['enable', 'disable'])
     async def honeypot_toggle(self, ctx: GuildContext) -> None:
-        """Toggle this server's honeypot."""
+        """Toggle this server's honeypot.
+        You can also use `honeypot enable` or `honeypot disable`.
+        """
 
         config = self.bot.honeypot.get_config(ctx.guild.id)
         if config is None:
