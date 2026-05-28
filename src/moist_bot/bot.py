@@ -19,7 +19,6 @@ from .models import BlocklistScope, BlocklistSource
 from .services import BlocklistManager, HoneypotManager
 from .settings import settings
 from .utils.context import Context, MoistCommandTree
-from .utils.converters import shorten
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -386,7 +385,6 @@ class MoistBot(commands.Bot):
         *,
         reason: str,
         delete_message_seconds: int,
-        error_width: int | None = None,
     ) -> SoftbanResult:
         """Ban and unban a member to remove recent messages."""
 
@@ -403,7 +401,7 @@ class MoistBot(commands.Bot):
             error = f'Ban failed: {e}'
             return SoftbanResult(
                 softbanned=False,
-                error=shorten(error, error_width) if error_width is not None else error,
+                error=error,
                 ban_applied=False,
             )
 
@@ -417,7 +415,7 @@ class MoistBot(commands.Bot):
             error = f'Unban failed: {e}'
             return SoftbanResult(
                 softbanned=False,
-                error=shorten(error, error_width) if error_width is not None else error,
+                error=error,
                 ban_applied=True,
             )
 
@@ -429,7 +427,6 @@ class MoistBot(commands.Bot):
         *,
         reason: str,
         delete_message_seconds: int,
-        error_width: int | None = None,
     ) -> SoftbanResult:
         """Softban a member without cancellation interrupting the matching unban."""
 
@@ -438,7 +435,6 @@ class MoistBot(commands.Bot):
                 member,
                 reason=reason,
                 delete_message_seconds=delete_message_seconds,
-                error_width=error_width,
             )
         )
         try:

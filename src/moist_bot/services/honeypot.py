@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
+from enum import StrEnum, auto
 from typing import TYPE_CHECKING, cast
 
 import discord
@@ -30,10 +31,16 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 CONTENT_EXCERPT_WIDTH = 500
-SOFTBAN_REASON = 'Triggered honeypot channel.'
+PUNISHMENT_REASON = 'Triggered honeypot channel.'
 SOFTBAN_DELETE_MESSAGE_SECONDS = 5 * 60
 DISCORD_MAX_DELETE_MESSAGE_SECONDS = 7 * 24 * 60 * 60
 SCAN_DELETE_SECONDS_GRACE = 5
+BAN_TRIGGER_MODULO = 3
+
+
+class HoneypotPunishmentAction(StrEnum):
+    SOFTBAN = auto()
+    BAN = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +61,17 @@ class HoneypotScanBatch:
 
     member: discord.Member
     messages: list[discord.Message]
+
+
+@dataclass(frozen=True, slots=True)
+class HoneypotPunishmentResult:
+    """Outcome of an automatic honeypot punishment."""
+
+    action: HoneypotPunishmentAction
+    trigger_count: int
+    succeeded: bool
+    error: str | None
+    ban_applied: bool
 
 
 @dataclass(slots=True)
@@ -317,47 +335,36 @@ class HoneypotManager:
         self.configs.pop(guild_id, None)
         return True
 
-    async def create_incident(
+    async def _reserve_trigger_count(
         self,
         *,
-        config: HoneypotConfig,
+        guild_id: int,
         user_id: int,
-        message_id: int,
-        message_created_at: datetime,
-        content_excerpt: str | None,
-        attachment_count: int,
-        delete_message_seconds: int,
-        softbanned: bool,
-        softban_error: str | None,
-    ) -> HoneypotIncident:
-        """Create one incident row and return it with the updated trigger count."""
+    ) -> int:
+        """Increment and return the member trigger count used for punishment."""
 
         async with self.bot.db_session_maker() as session:
             trigger_count = await HoneypotUserStats.increment(
                 session,
-                guild_id=config.guild_id,
+                guild_id=guild_id,
                 user_id=user_id,
             )
-            await HoneypotGuildStats.increment(session, guild_id=config.guild_id)
-            incident = HoneypotIncident(
-                config_id=config.id,
-                guild_id=config.guild_id,
-                channel_id=config.channel_id,
-                log_channel_id=config.log_channel_id,
-                user_id=user_id,
-                message_id=message_id,
-                message_created_at=message_created_at,
-                content_excerpt=content_excerpt,
-                attachment_count=attachment_count,
-                trigger_count=trigger_count,
-                delete_message_seconds=delete_message_seconds,
-                softbanned=softbanned,
-                softban_error=softban_error,
-            )
+            await session.commit()
+
+        return trigger_count
+
+    async def _create_incident(
+        self,
+        incident: HoneypotIncident,
+    ) -> HoneypotIncident:
+        """Create one incident row and update precomputed guild stats."""
+
+        async with self.bot.db_session_maker() as session:
+            await HoneypotGuildStats.increment(session, guild_id=incident.guild_id)
             session.add(incident)
             await session.commit()
 
-        self._increment_incident_count(config.guild_id)
+        self._increment_incident_count(incident.guild_id)
         return incident
 
     async def update_log_status(
@@ -418,10 +425,16 @@ class HoneypotManager:
                 value=str(incident.attachment_count),
             )
 
-        if incident.softban_error is not None:
+        punishment_status = 'succeeded' if incident.punishment_succeeded else 'failed'
+        embed.add_field(
+            name='Punishment',
+            value=f'{incident.punishment_action} ({punishment_status})',
+        )
+
+        if incident.punishment_error is not None:
             embed.add_field(
-                name='Softban Error',
-                value=incident.softban_error,
+                name='Punishment Error',
+                value=incident.punishment_error,
                 inline=False,
             )
 
@@ -446,22 +459,27 @@ class HoneypotManager:
         member: discord.Member,
         config: HoneypotConfig,
         delete_message_seconds: int,
-        softbanned: bool,
-        softban_error: str | None,
+        punishment: HoneypotPunishmentResult,
     ) -> None:
         """Create the incident row and send the configured log."""
 
-        incident = await self.create_incident(
-            config=config,
+        incident = HoneypotIncident(
+            config_id=config.id,
+            guild_id=config.guild_id,
+            channel_id=config.channel_id,
+            log_channel_id=config.log_channel_id,
             user_id=member.id,
             message_id=message.id,
             message_created_at=message.created_at,
             content_excerpt=self._content_excerpt(message),
             attachment_count=len(message.attachments),
+            trigger_count=punishment.trigger_count,
             delete_message_seconds=delete_message_seconds,
-            softbanned=softbanned,
-            softban_error=softban_error,
+            punishment_action=str(punishment.action),
+            punishment_succeeded=punishment.succeeded,
+            punishment_error=punishment.error,
         )
+        await self._create_incident(incident)
 
         log_sent, log_error = await self._send_log_embed(
             incident=incident,
@@ -475,6 +493,64 @@ class HoneypotManager:
                 log_error=log_error,
             )
 
+    async def punish_member(
+        self,
+        member: discord.Member,
+        *,
+        trigger_count: int,
+        delete_message_seconds: int,
+    ) -> HoneypotPunishmentResult:
+        """Punish a member according to their honeypot trigger history."""
+
+        action = (
+            HoneypotPunishmentAction.BAN
+            if trigger_count % BAN_TRIGGER_MODULO == 0
+            else HoneypotPunishmentAction.SOFTBAN
+        )
+
+        succeeded: bool = True
+        error: str | None = None
+        ban_applied: bool = True
+
+        match action:
+            case HoneypotPunishmentAction.BAN:
+                try:
+                    await member.ban(
+                        reason=PUNISHMENT_REASON,
+                        delete_message_seconds=delete_message_seconds,
+                    )
+                except discord.HTTPException as e:
+                    log.warning(
+                        f'Failed to ban user {member} ({member.id}) '
+                        f'in guild {member.guild} ({member.guild.id}): {e}'
+                    )
+                    error = shorten(f'Ban failed: {e}', CONTENT_EXCERPT_WIDTH)
+                    succeeded = False
+                    ban_applied = False
+
+            case HoneypotPunishmentAction.SOFTBAN:
+                result = await self.bot.softban_member(
+                    member,
+                    reason=PUNISHMENT_REASON,
+                    delete_message_seconds=delete_message_seconds,
+                )
+                succeeded = result.softbanned
+                error = (
+                    shorten(result.error, CONTENT_EXCERPT_WIDTH)
+                    if result.error
+                    else None
+                )
+                ban_applied = result.ban_applied
+
+        # Finally, record the punishment
+        return HoneypotPunishmentResult(
+            action=action,
+            trigger_count=trigger_count,
+            succeeded=succeeded,
+            error=error,
+            ban_applied=ban_applied,
+        )
+
     async def _handle_trigger(
         self,
         *,
@@ -483,24 +559,24 @@ class HoneypotManager:
         config: HoneypotConfig,
         delete_message_seconds: int = SOFTBAN_DELETE_MESSAGE_SECONDS,
     ) -> None:
-        """Run the full softban flow for a honeypot trigger."""
+        """Run the full punishment flow for a honeypot trigger."""
 
-        # Ban deletion is safer than manual purge because Discord handles scope
-        softban_result = await self.bot.softban_member(
+        trigger_count: int = await self._reserve_trigger_count(
+            guild_id=config.guild_id,
+            user_id=member.id,
+        )
+        punishment: HoneypotPunishmentResult = await self.punish_member(
             member,
-            reason=SOFTBAN_REASON,
+            trigger_count=trigger_count,
             delete_message_seconds=delete_message_seconds,
-            error_width=CONTENT_EXCERPT_WIDTH,
         )
 
-        # Store the incident before logging so the embed can show trigger count
         await self._record_and_log_trigger(
             message=message,
             member=member,
             config=config,
             delete_message_seconds=delete_message_seconds,
-            softbanned=softban_result.softbanned,
-            softban_error=softban_result.error,
+            punishment=punishment,
         )
 
     async def handle_message(self, message: discord.Message) -> None:
@@ -524,7 +600,7 @@ class HoneypotManager:
         ):
             return
 
-        # Only non-exempt human members reaching this point trigger the softban
+        # Only non-exempt human members reaching this point trigger punishment
         await self._handle_trigger(
             message=message,
             member=message.author,
@@ -618,7 +694,7 @@ class HoneypotManager:
         *,
         messages: list[discord.Message],
     ) -> int:
-        """Deletes scanned honeypot messages after a scan softban."""
+        """Deletes scanned honeypot messages not covered by ban deletion."""
 
         if not messages:
             return 0
@@ -660,16 +736,19 @@ class HoneypotManager:
 
         oldest_message = min(batch.messages, key=lambda message: message.created_at)
         delete_message_seconds = self._delete_seconds_for_oldest_message(oldest_message)
-        softban_result = await self.bot.softban_member(
+        trigger_count = await self._reserve_trigger_count(
+            guild_id=config.guild_id,
+            user_id=batch.member.id,
+        )
+        punishment = await self.punish_member(
             batch.member,
-            reason=SOFTBAN_REASON,
+            trigger_count=trigger_count,
             delete_message_seconds=delete_message_seconds,
-            error_width=CONTENT_EXCERPT_WIDTH,
         )
         manual_delete_messages = self._scan_messages_requiring_manual_delete(
             messages=batch.messages,
             delete_message_seconds=delete_message_seconds,
-            ban_applied=softban_result.ban_applied,
+            ban_applied=punishment.ban_applied,
         )
         deleted_count = await self._delete_scan_messages(
             messages=manual_delete_messages
@@ -685,8 +764,7 @@ class HoneypotManager:
             member=batch.member,
             config=config,
             delete_message_seconds=delete_message_seconds,
-            softbanned=softban_result.softbanned,
-            softban_error=softban_result.error,
+            punishment=punishment,
         )
         return deleted_count
 
