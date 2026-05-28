@@ -22,6 +22,7 @@ from moist_bot.utils.message_purge import ChannelPurger
 
 if TYPE_CHECKING:
     from datetime import datetime
+    from typing import Any
 
     from moist_bot.bot import MoistBot
 
@@ -32,7 +33,7 @@ CONTENT_EXCERPT_WIDTH = 500
 SOFTBAN_REASON = 'Triggered honeypot channel.'
 SOFTBAN_DELETE_MESSAGE_SECONDS = 5 * 60
 DISCORD_MAX_DELETE_MESSAGE_SECONDS = 7 * 24 * 60 * 60
-STARTUP_SCAN_DELETE_SECONDS_GRACE = 5
+SCAN_DELETE_SECONDS_GRACE = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,20 +49,39 @@ class HoneypotConfig:
 
 
 @dataclass(slots=True)
-class StartupHoneypotBatch:
-    """Messages found for one member during startup scanning."""
+class HoneypotScanBatch:
+    """Messages found for one member during a honeypot scan."""
 
     member: discord.Member
     messages: list[discord.Message]
 
 
-@dataclass(frozen=True, slots=True)
-class SoftbanResult:
-    """Outcome of a honeypot softban attempt."""
+@dataclass(slots=True)
+class HoneypotScanResult:
+    """Summary of a honeypot scan."""
 
-    softbanned: bool
-    error: str | None
-    ban_applied: bool
+    configs_checked: int = 0
+    messages_found: int = 0
+    members_handled: int = 0
+    incidents_recorded: int = 0
+    messages_deleted: int = 0
+
+    def merge(self, other: HoneypotScanResult) -> None:
+        """Add another scan result into this one."""
+
+        self.configs_checked += other.configs_checked
+        self.messages_found += other.messages_found
+        self.members_handled += other.members_handled
+        self.incidents_recorded += other.incidents_recorded
+        self.messages_deleted += other.messages_deleted
+
+
+class HoneypotScanAlreadyRunningError(Exception):
+    """Raised when a guild already has an active honeypot scan."""
+
+    def __init__(self, guild_id: int) -> None:
+        self.guild_id: int = guild_id
+        super().__init__(f'Honeypot scan already running for guild {guild_id}.')
 
 
 class HoneypotManager:
@@ -72,8 +92,9 @@ class HoneypotManager:
         self.configs: dict[int, HoneypotConfig] = {}
         self._incident_counts: defaultdict[int, int] = defaultdict(int)
         self._load_lock: asyncio.Lock = asyncio.Lock()
-        self._startup_scan_done: bool = False
-        self._startup_scan_task: asyncio.Task[None] | None = None
+        self._scan_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._scan_once_done: bool = False
+        self._scan_once_task: asyncio.Task[Any] | None = None
 
     async def load(self) -> None:
         """Load all honeypot configs into memory."""
@@ -111,21 +132,24 @@ class HoneypotManager:
 
     def get_config(self, guild_id: int) -> HoneypotConfig | None:
         """Return the cached config for a guild."""
-
         return self.configs.get(guild_id)
 
     def enabled_configs(self) -> tuple[HoneypotConfig, ...]:
         """Return all enabled cached honeypot configs."""
-
         return tuple(config for config in self.configs.values() if config.enabled)
 
-    async def _is_exempt(self, member: discord.Member) -> bool:
-        """Return whether a member should bypass automatic honeypot action."""
+    async def _is_exempt(self, message: discord.Message) -> bool:
+        """Return whether a message should bypass automatic honeypot action."""
 
+        author = message.author
         return (
-            await self.bot.is_owner(member)
-            or member.guild_permissions.administrator
-            or member.guild_permissions.manage_guild
+            message.guild is None
+            or message.author.bot
+            or message.webhook_id is not None
+            or await self.bot.is_owner(author)
+            or not isinstance(author, discord.Member)
+            or author.guild_permissions.manage_guild
+            or author.guild_permissions.administrator
         )
 
     @staticmethod
@@ -139,20 +163,18 @@ class HoneypotManager:
 
     @staticmethod
     def _delete_seconds_for_oldest_message(message: discord.Message) -> int:
-        """Return a Discord delete window for a scanned startup message."""
+        """Return a Discord delete window for a scanned honeypot message."""
 
         age = discord.utils.utcnow() - message.created_at
-        seconds = int(max(0.0, age.total_seconds())) + STARTUP_SCAN_DELETE_SECONDS_GRACE
+        seconds = int(max(0.0, age.total_seconds())) + SCAN_DELETE_SECONDS_GRACE
         return min(seconds, DISCORD_MAX_DELETE_MESSAGE_SECONDS)
 
     def incident_count_for_guild(self, *, guild_id: int) -> int:
         """Return the total number of honeypot incidents for a guild."""
-
         return self._incident_counts[guild_id]
 
     def _increment_incident_count(self, guild_id: int) -> None:
         """Increment the cached guild incident total."""
-
         self._incident_counts[guild_id] += 1
 
     async def set_config(
@@ -359,45 +381,6 @@ class HoneypotManager:
             incident.log_error = log_error
             await session.commit()
 
-    async def _softban_member(
-        self,
-        member: discord.Member,
-        *,
-        delete_message_seconds: int,
-    ) -> SoftbanResult:
-        """Ban and unban a member to remove recent messages."""
-
-        try:
-            await member.ban(
-                reason=SOFTBAN_REASON,
-                delete_message_seconds=delete_message_seconds,
-            )
-        except discord.HTTPException as e:
-            log.warning(
-                f'Failed to ban honeypot user {member} ({member.id}) '
-                f'in guild {member.guild} ({member.guild.id}): {e}'
-            )
-            return SoftbanResult(
-                softbanned=False,
-                error=shorten(f'Ban failed: {e}', CONTENT_EXCERPT_WIDTH),
-                ban_applied=False,
-            )
-
-        try:
-            await member.unban(reason=SOFTBAN_REASON)
-        except discord.HTTPException as e:
-            log.warning(
-                f'Failed to unban honeypot user {member} ({member.id}) '
-                f'in guild {member.guild} ({member.guild.id}): {e}'
-            )
-            return SoftbanResult(
-                softbanned=False,
-                error=shorten(f'Unban failed: {e}', CONTENT_EXCERPT_WIDTH),
-                ban_applied=True,
-            )
-
-        return SoftbanResult(softbanned=True, error=None, ban_applied=True)
-
     async def _send_log_embed(
         self,
         *,
@@ -503,9 +486,11 @@ class HoneypotManager:
         """Run the full softban flow for a honeypot trigger."""
 
         # Ban deletion is safer than manual purge because Discord handles scope
-        softban_result = await self._softban_member(
+        softban_result = await self.bot.softban_member(
             member,
+            reason=SOFTBAN_REASON,
             delete_message_seconds=delete_message_seconds,
+            error_width=CONTENT_EXCERPT_WIDTH,
         )
 
         # Store the incident before logging so the embed can show trigger count
@@ -522,12 +507,13 @@ class HoneypotManager:
         """Handle a live message sent to a configured honeypot channel."""
 
         # Early reject conditions
-        if (
-            message.guild is None
-            or message.author.bot
-            or message.webhook_id is not None
-        ):
+        if await self._is_exempt(message):
             return
+
+        # These are already confirmed by `self._is_exempt`
+        if TYPE_CHECKING:
+            assert message.guild is not None
+            assert isinstance(message.author, discord.Member)
 
         # Config reject conditions
         config = self.get_config(message.guild.id)
@@ -535,8 +521,6 @@ class HoneypotManager:
             config is None
             or message.channel.id != config.channel_id
             or not config.enabled
-            or not isinstance(message.author, discord.Member)
-            or await self._is_exempt(message.author)
         ):
             return
 
@@ -547,18 +531,16 @@ class HoneypotManager:
             config=config,
         )
 
-    async def _resolve_startup_channel(
+    async def _resolve_scan_channel(
         self,
         config: HoneypotConfig,
     ) -> discord.TextChannel | None:
-        """Resolve a configured startup scan channel."""
+        """Resolve a configured honeypot scan channel."""
 
         try:
             guild = await self.bot.get_or_fetch_guild(config.guild_id)
         except discord.HTTPException:
-            log.warning(
-                f'Skipping honeypot startup scan for missing guild {config.guild_id}.'
-            )
+            log.warning(f'Skipping honeypot scan for missing guild {config.guild_id}.')
             return None
 
         try:
@@ -575,7 +557,7 @@ class HoneypotManager:
 
         if not isinstance(channel, discord.TextChannel):
             log.warning(
-                f'Skipping honeypot startup scan for non-text channel '
+                f'Skipping honeypot scan for non-text channel '
                 f'{config.channel_id} in guild {guild} ({guild.id}).'
             )
             return None
@@ -583,64 +565,42 @@ class HoneypotManager:
         permissions = channel.permissions_for(guild.me)
         if not permissions.read_messages or not permissions.read_message_history:
             log.warning(
-                f'Skipping honeypot startup scan for {channel} ({channel.id}) '
+                f'Skipping honeypot scan for {channel} ({channel.id}) '
                 f'in guild {guild} ({guild.id}); missing history permissions.'
             )
             return None
 
         return channel
 
-    async def _member_for_startup_message(
-        self,
-        guild: discord.Guild,
-        message: discord.Message,
-    ) -> discord.Member | None:
-        """Return the non-exempt member that authored a scanned message."""
-
-        if message.webhook_id is not None or message.author.bot:
-            return None
-
-        if isinstance(message.author, discord.Member):
-            member = message.author
-        else:
-            try:
-                member = await guild.fetch_member(message.author.id)
-            except discord.HTTPException:
-                return None
-
-        if await self._is_exempt(member):
-            return None
-        return member
-
-    async def _scan_startup_channel(
+    async def _scan_channel(
         self,
         *,
         channel: discord.TextChannel,
         before: datetime,
-    ) -> dict[int, StartupHoneypotBatch]:
-        """Scan a honeypot channel and group missed messages by member."""
+    ) -> dict[int, HoneypotScanBatch]:
+        """Scan a honeypot channel and group messages by member."""
 
-        batches: dict[int, StartupHoneypotBatch] = {}
-        try:
-            async for message in channel.history(limit=None, before=before):
-                member = await self._member_for_startup_message(channel.guild, message)
-                if member is not None:
-                    self._add_startup_message(
-                        batches,
-                        member=member,
-                        message=message,
-                    )
-        except discord.HTTPException as e:
-            log.warning(
-                f'Failed to scan honeypot channel {channel} ({channel.id}) '
-                f'in guild {channel.guild} ({channel.guild.id}): {e}'
+        batches: dict[int, HoneypotScanBatch] = {}
+        async for message in channel.history(limit=None, before=before):
+            if await self._is_exempt(message):
+                continue
+
+            # These are already confirmed by `self._is_exempt`
+            if TYPE_CHECKING:
+                assert message.guild is not None
+                assert isinstance(message.author, discord.Member)
+
+            self._add_scan_message(
+                batches,
+                member=message.author,
+                message=message,
             )
 
         return batches
 
     @staticmethod
-    def _add_startup_message(
-        batches: dict[int, StartupHoneypotBatch],
+    def _add_scan_message(
+        batches: dict[int, HoneypotScanBatch],
         *,
         member: discord.Member,
         message: discord.Message,
@@ -649,16 +609,16 @@ class HoneypotManager:
 
         batch = batches.get(member.id)
         if batch is None:
-            batch = StartupHoneypotBatch(member=member, messages=[])
+            batch = HoneypotScanBatch(member=member, messages=[])
             batches[member.id] = batch
         batch.messages.append(message)
 
-    async def _delete_startup_messages(
+    async def _delete_scan_messages(
         self,
         *,
         messages: list[discord.Message],
     ) -> int:
-        """Deletes scanned honeypot messages after a startup softban."""
+        """Deletes scanned honeypot messages after a scan softban."""
 
         if not messages:
             return 0
@@ -672,7 +632,7 @@ class HoneypotManager:
         return len(deleted)
 
     @staticmethod
-    def _startup_messages_requiring_manual_delete(
+    def _scan_messages_requiring_manual_delete(
         *,
         messages: list[discord.Message],
         delete_message_seconds: int,
@@ -690,26 +650,28 @@ class HoneypotManager:
             if (now - message.created_at).total_seconds() > delete_message_seconds
         ]
 
-    async def _handle_startup_batch(
+    async def _handle_scan_batch(
         self,
         *,
         config: HoneypotConfig,
-        batch: StartupHoneypotBatch,
-    ) -> None:
-        """Handle all scanned startup messages for one member."""
+        batch: HoneypotScanBatch,
+    ) -> int:
+        """Handle all scanned honeypot messages for one member."""
 
         oldest_message = min(batch.messages, key=lambda message: message.created_at)
         delete_message_seconds = self._delete_seconds_for_oldest_message(oldest_message)
-        softban_result = await self._softban_member(
+        softban_result = await self.bot.softban_member(
             batch.member,
+            reason=SOFTBAN_REASON,
             delete_message_seconds=delete_message_seconds,
+            error_width=CONTENT_EXCERPT_WIDTH,
         )
-        manual_delete_messages = self._startup_messages_requiring_manual_delete(
+        manual_delete_messages = self._scan_messages_requiring_manual_delete(
             messages=batch.messages,
             delete_message_seconds=delete_message_seconds,
             ban_applied=softban_result.ban_applied,
         )
-        deleted_count = await self._delete_startup_messages(
+        deleted_count = await self._delete_scan_messages(
             messages=manual_delete_messages
         )
         if deleted_count:
@@ -726,57 +688,143 @@ class HoneypotManager:
             softbanned=softban_result.softbanned,
             softban_error=softban_result.error,
         )
+        return deleted_count
 
-    async def run_startup_scan(self) -> None:
-        """Scan enabled honeypot channels for messages missed while offline."""
+    async def _scan_config(
+        self,
+        *,
+        config: HoneypotConfig,
+        before: datetime,
+    ) -> HoneypotScanResult:
+        """Scan one honeypot config and return summary counts."""
 
-        scan_started_at = discord.utils.utcnow()
-        configs = self.enabled_configs()
-        if not configs:
-            return
+        result = HoneypotScanResult(configs_checked=1)
+        channel = await self._resolve_scan_channel(config)
+        if channel is None:
+            return result
 
-        log.info(f'Starting honeypot startup scan for {len(configs)} configs.')
-        for config in configs:
-            channel = await self._resolve_startup_channel(config)
-            if channel is None:
-                continue
-
-            batches = await self._scan_startup_channel(
-                channel=channel,
-                before=scan_started_at,
+        batches = await self._scan_channel(channel=channel, before=before)
+        result.messages_found = sum(len(batch.messages) for batch in batches.values())
+        for batch in batches.values():
+            result.messages_deleted += await self._handle_scan_batch(
+                config=config,
+                batch=batch,
             )
-            for batch in batches.values():
-                await self._handle_startup_batch(config=config, batch=batch)
+            result.members_handled += 1
+            result.incidents_recorded += 1
 
-        log.info('Finished honeypot startup scan.')
+        return result
 
-    def handle_startup_scan_done(self, task: asyncio.Task[None]) -> None:
-        """Log startup scan task failures."""
+    async def _scan_config_with_lock(
+        self,
+        *,
+        config: HoneypotConfig,
+        before: datetime,
+    ) -> HoneypotScanResult:
+        """Scan one config while enforcing one active scan per guild."""
+
+        lock = self._scan_locks[config.guild_id]
+        if lock.locked():
+            raise HoneypotScanAlreadyRunningError(config.guild_id)
+
+        async with lock:
+            return await self._scan_config(config=config, before=before)
+
+    async def scan_guild(
+        self,
+        guild_id: int,
+        *,
+        ignore_disabled: bool = False,
+    ) -> HoneypotScanResult:
+        """Scan the configured honeypot channel for one guild."""
+
+        config = self.get_config(guild_id)
+        if config is None:
+            return HoneypotScanResult()
+        if not config.enabled and not ignore_disabled:
+            return HoneypotScanResult(configs_checked=1)
+
+        log.info(f'Starting honeypot scan for guild {guild_id}.')
+        result = await self._scan_config_with_lock(
+            config=config,
+            before=discord.utils.utcnow(),
+        )
+        log.info(f'Finished honeypot scan for guild {guild_id}.')
+        return result
+
+    async def _scan_enabled_config(
+        self,
+        *,
+        config: HoneypotConfig,
+        before: datetime,
+    ) -> HoneypotScanResult:
+        """Scan one enabled config for a multi-guild scan."""
 
         try:
-            task.result()
-        except asyncio.CancelledError:
+            return await self._scan_config_with_lock(
+                config=config,
+                before=before,
+            )
+        except HoneypotScanAlreadyRunningError:
+            log.warning(
+                f'Skipping honeypot scan for guild {config.guild_id}; '
+                f'a scan is already running.'
+            )
+            return HoneypotScanResult()
+
+    async def scan_enabled_configs(self) -> HoneypotScanResult:
+        """Scan all enabled honeypot configs."""
+
+        result = HoneypotScanResult()
+        configs = self.enabled_configs()
+        if not configs:
+            return result
+
+        scan_started_at = discord.utils.utcnow()
+        log.info(f'Starting honeypot scan for {len(configs)} configs.')
+
+        # Scan each config scan concurrently
+        async with asyncio.TaskGroup() as task_group:
+            tasks = [
+                task_group.create_task(
+                    self._scan_enabled_config(
+                        config=config,
+                        before=scan_started_at,
+                    )
+                )
+                for config in configs
+            ]
+
+        for task in tasks:
+            result.merge(task.result())
+
+        log.info('Finished honeypot scan.')
+        return result
+
+    def start_scan_once(self) -> None:
+        """Start the one-time automatic honeypot scan."""
+
+        if self._scan_once_done:
             return
-        except Exception:
-            log.exception('Honeypot startup scan failed.')
 
-    def start_startup_scan(self) -> None:
-        """Start the one-time honeypot startup scan."""
+        def handle_scan_once_done(task: asyncio.Task[Any]) -> None:
+            """Log automatic scan task failures."""
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                log.exception('Honeypot scan failed.')
 
-        if self._startup_scan_done:
-            return
+        self._scan_once_done = True
+        self._scan_once_task = asyncio.create_task(self.scan_enabled_configs())
+        self._scan_once_task.add_done_callback(handle_scan_once_done)
 
-        self._startup_scan_done = True
-        self._startup_scan_task = asyncio.create_task(self.run_startup_scan())
-        self._startup_scan_task.add_done_callback(self.handle_startup_scan_done)
+    def mark_scan_once_done(self) -> None:
+        """Mark the automatic scan as already handled for this process."""
+        self._scan_once_done = True
 
-    def mark_startup_scan_done(self) -> None:
-        """Mark the startup scan as already handled for this process."""
-
-        self._startup_scan_done = True
-
-    def cancel_startup_scan(self) -> None:
-        """Cancel a pending startup scan."""
-
-        if self._startup_scan_task is not None and not self._startup_scan_task.done():
-            self._startup_scan_task.cancel()
+    def cancel_scan(self) -> None:
+        """Cancel a pending automatic scan."""
+        if self._scan_once_task is not None and not self._scan_once_task.done():
+            self._scan_once_task.cancel()

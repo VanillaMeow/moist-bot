@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast, overload
 
 import aiohttp
@@ -18,6 +19,7 @@ from .models import BlocklistScope, BlocklistSource
 from .services import BlocklistManager, HoneypotManager
 from .settings import settings
 from .utils.context import Context, MoistCommandTree
+from .utils.converters import shorten
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -62,6 +64,15 @@ INTENTS = discord.Intents(
 ALLOWED_MENTIONS = discord.AllowedMentions(
     everyone=False, roles=False, users=True, replied_user=True
 )
+
+
+@dataclass(frozen=True, slots=True)
+class SoftbanResult:
+    """Outcome of a softban attempt."""
+
+    softbanned: bool
+    error: str | None
+    ban_applied: bool
 
 
 def _get_prefix(bot: commands.Bot, message: Message) -> list[str]:
@@ -368,6 +379,79 @@ class MoistBot(commands.Bot):
             return message
 
         return await channel.fetch_message(message_id)
+
+    async def _run_softban_member(
+        self,
+        member: discord.Member,
+        *,
+        reason: str,
+        delete_message_seconds: int,
+        error_width: int | None = None,
+    ) -> SoftbanResult:
+        """Ban and unban a member to remove recent messages."""
+
+        try:
+            await member.ban(
+                reason=reason,
+                delete_message_seconds=delete_message_seconds,
+            )
+        except discord.HTTPException as e:
+            log.warning(
+                f'Failed to ban user {member} ({member.id}) '
+                f'in guild {member.guild} ({member.guild.id}): {e}'
+            )
+            error = f'Ban failed: {e}'
+            return SoftbanResult(
+                softbanned=False,
+                error=shorten(error, error_width) if error_width is not None else error,
+                ban_applied=False,
+            )
+
+        try:
+            await member.unban(reason=reason)
+        except discord.HTTPException as e:
+            log.warning(
+                f'Failed to unban user {member} ({member.id}) '
+                f'in guild {member.guild} ({member.guild.id}): {e}'
+            )
+            error = f'Unban failed: {e}'
+            return SoftbanResult(
+                softbanned=False,
+                error=shorten(error, error_width) if error_width is not None else error,
+                ban_applied=True,
+            )
+
+        return SoftbanResult(softbanned=True, error=None, ban_applied=True)
+
+    async def softban_member(
+        self,
+        member: discord.Member,
+        *,
+        reason: str,
+        delete_message_seconds: int,
+        error_width: int | None = None,
+    ) -> SoftbanResult:
+        """Softban a member without cancellation interrupting the matching unban."""
+
+        task = asyncio.create_task(
+            self._run_softban_member(
+                member,
+                reason=reason,
+                delete_message_seconds=delete_message_seconds,
+                error_width=error_width,
+            )
+        )
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            try:
+                await task
+            except Exception:
+                log.exception(
+                    f'Softban cleanup failed for {member} ({member.id}) '
+                    f'in guild {member.guild} ({member.guild.id}).'
+                )
+            raise
 
     @property
     def config(self) -> Any:

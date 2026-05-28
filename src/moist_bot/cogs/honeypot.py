@@ -30,7 +30,7 @@ INCIDENT_CONTENT_WIDTH = 36
 INCIDENT_PAGE_SIZE = 8
 INCIDENT_PAGE_SIZE_MAX = 15
 
-UD = '\N{VARIATION SELECTOR-16}'  # Discord unicode variation
+VS16 = '\N{VARIATION SELECTOR-16}'  # Discord unicode variation
 ALERT = (
     '<a:alert:1509312153713250314>'
     if settings.use_fleabot
@@ -39,10 +39,10 @@ ALERT = (
 
 HONEYPOT_ALERT_CONTENT = cleandoc(f"""
 # {ALERT}
-# \N{WARNING SIGN}{UD} DO NOT SEND ANY MESSAGES HERE. YOU WILL BE __IRREVERSIBLY BANNED.__ \N{HAMMER}
+# \N{WARNING SIGN}{VS16} DO NOT SEND ANY MESSAGES HERE. YOU WILL BE __IRREVERSIBLY BANNED.__ \N{HAMMER}
 
 \N{NO ENTRY SIGN} THIS IS A TRAP FOR COMPROMISED ACCOUNTS.
-\N{INFORMATION SOURCE}{UD} Messages posted here will be **automatically** deleted, and the sender will be **automatically** banned.
+\N{INFORMATION SOURCE}{VS16} Messages posted here will be **automatically** deleted, and the sender will be **automatically** banned.
 
 **YOU HAVE BEEN WARNED. INTENTIONALLY SENDING MESSAGES WILL GET YOU BANNED WITH NO APPEALS.**
 # {ALERT}
@@ -77,10 +77,21 @@ class HoneypotSendFlags(
 ):
     """Flags accepted by the alert send command."""
 
-    force_new: bool = commands.flag(
+    force: bool = commands.flag(
         name='force',
         default=False,
         description='Send a new alert message instead of editing the stored one',
+    )
+
+
+class HoneypotScanFlags(
+    commands.FlagConverter, prefix='--', delimiter=' ', case_insensitive=True
+):
+    """Flags accepted by the honeypot scan command."""
+
+    force: bool = commands.flag(
+        default=False,
+        description='Scan even if the honeypot is disabled',
     )
 
 
@@ -310,13 +321,12 @@ class Honeypot(commands.Cog):
         return await can_manage_honeypot(ctx)
 
     async def cog_unload(self) -> None:
-        self.bot.honeypot.cancel_startup_scan()
+        self.bot.honeypot.cancel_scan()
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
-        """Start the one-time honeypot startup scan after the bot is ready."""
-
-        self.bot.honeypot.start_startup_scan()
+        """Start the one-time honeypot scan after the bot is ready."""
+        self.bot.honeypot.start_scan_once()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -408,7 +418,7 @@ class Honeypot(commands.Cog):
 
         # Send the alert message
 
-        if config.alert_message_id is not None and not flags.force_new:
+        if config.alert_message_id is not None and not flags.force:
             message, can_continue = await edit_honeypot_alert_message(
                 ctx, channel, config.alert_message_id
             )
@@ -498,6 +508,48 @@ class Honeypot(commands.Cog):
             f'Total incidents: `{count}`'
         )
 
+    @honeypot.command(name='scan')
+    async def honeypot_scan(
+        self,
+        ctx: GuildContext,
+        *,
+        flags: HoneypotScanFlags,
+    ) -> None:
+        """Scan this server's configured honeypot channel."""
+
+        config = self.bot.honeypot.get_config(ctx.guild.id)
+        if config is None:
+            await ctx.reply(
+                ':warning: This server does not have a honeypot configured.'
+            )
+            return
+
+        if not config.enabled and not flags.force:
+            await ctx.reply(
+                ':warning: Honeypot is disabled. Use `--force` to scan anyway.'
+            )
+            return
+
+        async with ctx.typing():
+            try:
+                result = await self.bot.honeypot.scan_guild(
+                    ctx.guild.id,
+                    ignore_disabled=flags.force,
+                )
+            except honeypot_service.HoneypotScanAlreadyRunningError:
+                await ctx.reply(
+                    ':warning: A honeypot scan is already running for this server.'
+                )
+                return
+
+        await ctx.reply(
+            ':white_check_mark: Honeypot scan complete.\n'
+            f'Messages found: `{result.messages_found}`\n'
+            f'Members handled: `{result.members_handled}`\n'
+            f'Incidents recorded: `{result.incidents_recorded}`\n'
+            f'Messages deleted: `{result.messages_deleted}`'
+        )
+
     @honeypot.command(name='history', aliases=['logs', 'incidents'])
     async def honeypot_history(
         self,
@@ -531,7 +583,7 @@ async def setup(bot: MoistBot) -> None:
     if bot.is_ready():
         manager_module = importlib.reload(honeypot_service)
         bot.honeypot = manager_module.HoneypotManager(bot)
-        bot.honeypot.mark_startup_scan_done()
+        bot.honeypot.mark_scan_once_done()
         await bot.honeypot.load()
 
     await bot.add_cog(Honeypot(bot))
