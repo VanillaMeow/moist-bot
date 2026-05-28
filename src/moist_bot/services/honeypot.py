@@ -406,9 +406,10 @@ class HoneypotManager:
             return False, 'Configured log channel cannot receive messages.'
         channel = cast('discord.abc.Messageable', channel)
 
+        action = incident.punishment_action.title()
         embed = (
             discord.Embed(
-                title='\N{HONEY POT} Honeypot Triggered',
+                title=f'\N{HONEY POT} Honeypot Triggered - {action}',
                 colour=discord.Colour.red(),
                 timestamp=incident.triggered_at,
                 description=incident.content_excerpt,
@@ -424,12 +425,6 @@ class HoneypotManager:
                 name='Attachments',
                 value=str(incident.attachment_count),
             )
-
-        punishment_status = 'succeeded' if incident.punishment_succeeded else 'failed'
-        embed.add_field(
-            name='Punishment',
-            value=f'{incident.punishment_action} ({punishment_status})',
-        )
 
         if incident.punishment_error is not None:
             embed.add_field(
