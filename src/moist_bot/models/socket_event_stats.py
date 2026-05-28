@@ -33,9 +33,6 @@ class SocketEventStats(SQLModel, table=True):
     ) -> None:
         """Insert or increment precomputed stats for a gateway event batch."""
 
-        if not event_counts:
-            return
-
         event_type = col(cls.event_type)
         result = await session.execute(
             select(cls).where(event_type.in_(tuple(event_counts)))

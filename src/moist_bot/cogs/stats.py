@@ -257,28 +257,28 @@ class Stats(commands.Cog):
             await self.bulk_insert()
 
     async def bulk_insert(self) -> None:
-        if not self._data_batch and not self._socket_stats_batch:
+        has_data_batch = bool(self._data_batch)
+        has_socket_stats_batch = bool(self._socket_stats_batch)
+
+        if not has_data_batch and not has_socket_stats_batch:
             return
 
         async with self.bot.db_session_maker() as session:
-            if self._data_batch:
+            if has_data_batch:
                 session.add_all(self._data_batch)
                 await session.flush()
-                await CommandUsageStats.upsert_usage_batch(session, self._data_batch)
+                await CommandUsageStats.upsert_usage_batch(
+                    session,
+                    self._data_batch,
+                )
 
-            await SocketEventStats.upsert_event_batch(
-                session,
-                self._socket_stats_batch,
-            )
+            if has_socket_stats_batch:
+                await SocketEventStats.upsert_event_batch(
+                    session,
+                    self._socket_stats_batch,
+                )
+
             await session.commit()
-
-        total = len(self._data_batch)
-        if total > 1:
-            log.info(f'Registered {total} commands to the database.')
-
-        socket_total = sum(self._socket_stats_batch.values())
-        if socket_total > 1:
-            log.info(f'Registered {socket_total} socket events to the database.')
 
         self._data_batch.clear()
         self._socket_stats_batch.clear()
