@@ -1048,7 +1048,6 @@ class HoneypotManager:
         if self._scan_once_done:
             return
 
-
         def handle_scan_once_done(task: asyncio.Task[Any]) -> None:
             """Log automatic scan task failures."""
             try:
