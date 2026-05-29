@@ -1056,14 +1056,10 @@ class HoneypotManager:
                 return
             except Exception:
                 log.exception('Honeypot scan failed.')
-            finally:
-                log.info('Automatic honeypot scan complete.')
 
-        log.info('Starting automatic honeypot scan.')
         self._scan_once_done = True
         self._scan_once_task = asyncio.create_task(self.scan_enabled_configs())
         self._scan_once_task.add_done_callback(handle_scan_once_done)
-        log.info('Automatic honeypot scan started.')
 
     def mark_scan_once_done(self) -> None:
         """Mark the automatic scan as already handled for this process."""
