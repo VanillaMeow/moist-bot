@@ -27,8 +27,15 @@ if TYPE_CHECKING:
 
     from moist_bot.bot import MoistBot
 
+    class GuildMessage(discord.Message):
+        """A message in a guild."""
+
+        guild: discord.Guild
+        author: discord.Member  # type: ignore[reportIncompatibleVariableOverride]
+
 
 log = logging.getLogger('discord.' + __name__)
+
 
 CONTENT_EXCERPT_WIDTH = 500
 PUNISHMENT_REASON = 'Triggered honeypot channel.'
@@ -64,11 +71,12 @@ class HoneypotScanBatch:
 
 
 @dataclass(frozen=True, slots=True)
-class HoneypotPunishmentResult:
+class Punishment:
     """Outcome of an automatic honeypot punishment."""
 
     action: HoneypotPunishmentAction
     trigger_count: int
+    delete_message_seconds: int
     succeeded: bool
     error: str | None
     ban_applied: bool
@@ -453,8 +461,7 @@ class HoneypotManager:
         message: discord.Message,
         member: discord.Member,
         config: HoneypotConfig,
-        delete_message_seconds: int,
-        punishment: HoneypotPunishmentResult,
+        punishment: Punishment,
     ) -> None:
         """Create the incident row and send the configured log."""
 
@@ -469,7 +476,7 @@ class HoneypotManager:
             content_excerpt=self._content_excerpt(message),
             attachment_count=len(message.attachments),
             trigger_count=punishment.trigger_count,
-            delete_message_seconds=delete_message_seconds,
+            delete_message_seconds=punishment.delete_message_seconds,
             punishment_action=str(punishment.action),
             punishment_succeeded=punishment.succeeded,
             punishment_error=punishment.error,
@@ -494,7 +501,7 @@ class HoneypotManager:
         *,
         trigger_count: int,
         delete_message_seconds: int,
-    ) -> HoneypotPunishmentResult:
+    ) -> Punishment:
         """Punish a member according to their honeypot trigger history."""
 
         action = (
@@ -507,40 +514,40 @@ class HoneypotManager:
         error: str | None = None
         ban_applied: bool = True
 
-        match action:
-            case HoneypotPunishmentAction.BAN:
-                try:
-                    await member.ban(
-                        reason=PUNISHMENT_REASON,
-                        delete_message_seconds=delete_message_seconds,
-                    )
-                except discord.HTTPException as e:
-                    log.warning(
-                        f'Failed to ban user {member} ({member.id}) '
-                        f'in guild {member.guild} ({member.guild.id}): {e}'
-                    )
-                    error = shorten(f'Ban failed: {e}', CONTENT_EXCERPT_WIDTH)
-                    succeeded = False
-                    ban_applied = False
-
-            case HoneypotPunishmentAction.SOFTBAN:
-                result = await self.bot.softban_member(
-                    member,
+        if action is HoneypotPunishmentAction.BAN:
+            try:
+                await member.ban(
                     reason=PUNISHMENT_REASON,
                     delete_message_seconds=delete_message_seconds,
                 )
-                succeeded = result.softbanned
-                error = (
-                    shorten(result.error, CONTENT_EXCERPT_WIDTH)
-                    if result.error
-                    else None
+            except discord.HTTPException as e:
+                log.warning(
+                    f'Failed to ban user {member} ({member.id}) '
+                    f'in guild {member.guild} ({member.guild.id}): {e}'
                 )
-                ban_applied = result.ban_applied
+                error = shorten(f'Ban failed: {e}', CONTENT_EXCERPT_WIDTH)
+                succeeded = False
+                ban_applied = False
+
+        elif action is HoneypotPunishmentAction.SOFTBAN:
+            result = await self.bot.softban_member(
+                member,
+                reason=PUNISHMENT_REASON,
+                delete_message_seconds=delete_message_seconds,
+            )
+            succeeded = result.softbanned
+            error = (
+                shorten(result.error, CONTENT_EXCERPT_WIDTH)
+                if result.error
+                else None
+            )
+            ban_applied = result.ban_applied
 
         # Finally, record the punishment
-        return HoneypotPunishmentResult(
+        return Punishment(
             action=action,
             trigger_count=trigger_count,
+            delete_message_seconds=delete_message_seconds,
             succeeded=succeeded,
             error=error,
             ban_applied=ban_applied,
@@ -549,18 +556,18 @@ class HoneypotManager:
     async def _handle_trigger(
         self,
         *,
-        message: discord.Message,
-        member: discord.Member,
+        message: GuildMessage,
         config: HoneypotConfig,
         delete_message_seconds: int = SOFTBAN_DELETE_MESSAGE_SECONDS,
     ) -> None:
         """Run the full punishment flow for a honeypot trigger."""
 
+        member = message.author
         trigger_count: int = await self._reserve_trigger_count(
             guild_id=config.guild_id,
             user_id=member.id,
         )
-        punishment: HoneypotPunishmentResult = await self.punish_member(
+        punishment: Punishment = await self.punish_member(
             member,
             trigger_count=trigger_count,
             delete_message_seconds=delete_message_seconds,
@@ -570,7 +577,6 @@ class HoneypotManager:
             message=message,
             member=member,
             config=config,
-            delete_message_seconds=delete_message_seconds,
             punishment=punishment,
         )
 
@@ -581,10 +587,9 @@ class HoneypotManager:
         if await self._is_exempt(message):
             return
 
-        # These are already confirmed by `self._is_exempt`
+        # This is confirmed by `self._is_exempt`
         if TYPE_CHECKING:
-            assert message.guild is not None
-            assert isinstance(message.author, discord.Member)
+            message = cast('GuildMessage', message)
 
         # Config reject conditions
         config = self.get_config(message.guild.id)
@@ -598,9 +603,12 @@ class HoneypotManager:
         # Only non-exempt human members reaching this point trigger punishment
         await self._handle_trigger(
             message=message,
-            member=message.author,
             config=config,
         )
+
+    #
+    # Guild scanning
+    #
 
     async def _resolve_scan_channel(
         self,
@@ -661,28 +669,15 @@ class HoneypotManager:
                 assert message.guild is not None
                 assert isinstance(message.author, discord.Member)
 
-            self._add_scan_message(
-                batches,
-                member=message.author,
-                message=message,
-            )
+            # Add the message to the member batch
+            member = message.author
+            batch = batches.get(member.id)
+            if batch is None:
+                batch = HoneypotScanBatch(member=member, messages=[])
+                batches[member.id] = batch
+            batch.messages.append(message)
 
         return batches
-
-    @staticmethod
-    def _add_scan_message(
-        batches: dict[int, HoneypotScanBatch],
-        *,
-        member: discord.Member,
-        message: discord.Message,
-    ) -> None:
-        """Add one scanned message to a member batch."""
-
-        batch = batches.get(member.id)
-        if batch is None:
-            batch = HoneypotScanBatch(member=member, messages=[])
-            batches[member.id] = batch
-        batch.messages.append(message)
 
     async def _delete_scan_messages(
         self,
@@ -750,6 +745,7 @@ class HoneypotManager:
             messages=manual_delete_messages
         )
         deleted_count = ban_deleted_count + manual_deleted_count
+
         if manual_deleted_count:
             log.debug(
                 f'Manually deleted {manual_deleted_count} scanned honeypot messages '
@@ -766,9 +762,9 @@ class HoneypotManager:
             message=oldest_message,
             member=batch.member,
             config=config,
-            delete_message_seconds=delete_message_seconds,
             punishment=punishment,
         )
+
         return deleted_count
 
     async def _scan_config(
