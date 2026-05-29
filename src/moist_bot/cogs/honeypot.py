@@ -357,6 +357,27 @@ class Honeypot(commands.Cog):
             await ctx.reply(':warning: Honeypot and log channel must be different.')
             return
 
+        blocking_errors: list[str] = []
+        honeypot_perms = honeypot_channel.permissions_for(ctx.me)
+        log_perms = log_channel.permissions_for(ctx.me)
+        if not ctx.me.guild_permissions.ban_members:
+            blocking_errors.append('I am missing **Ban Members**.')
+        if not honeypot_perms.read_messages:
+            blocking_errors.append(f'I cannot read {honeypot_channel.mention}.')
+        if not honeypot_perms.read_message_history:
+            blocking_errors.append(
+                f'I cannot read message history in {honeypot_channel.mention}.'
+            )
+        if not log_perms.send_messages:
+            blocking_errors.append(f'I cannot send messages in {log_channel.mention}.')
+        if not log_perms.embed_links:
+            blocking_errors.append(f'I cannot send embeds in {log_channel.mention}.')
+        if blocking_errors:
+            lines = [':warning: Honeypot was not configured.']
+            lines.extend(f':warning: {error}' for error in blocking_errors)
+            await ctx.reply('\n'.join(lines))
+            return
+
         config = await self.bot.honeypot.set_config(
             guild_id=ctx.guild.id,
             channel_id=honeypot_channel.id,
@@ -366,20 +387,8 @@ class Honeypot(commands.Cog):
 
         # Make warnings
         warnings: list[str] = []
-        honeypot_perms = honeypot_channel.permissions_for(ctx.me)
-        log_perms = log_channel.permissions_for(ctx.me)
-        if not ctx.me.guild_permissions.ban_members:
-            warnings.append('I am missing **Ban Members**.')
-        if not honeypot_perms.read_message_history:
-            warnings.append(
-                f'I cannot read message history in {honeypot_channel.mention}.'
-            )
         if not honeypot_perms.manage_messages:
             warnings.append(f'I cannot manually clean {honeypot_channel.mention}.')
-        if not log_perms.send_messages:
-            warnings.append(f'I cannot send messages in {log_channel.mention}.')
-        if not log_perms.embed_links:
-            warnings.append(f'I cannot send embeds in {log_channel.mention}.')
 
         lines = [
             ':white_check_mark: Honeypot enabled.',

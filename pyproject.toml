@@ -18,6 +18,7 @@ dependencies = [
     "colorama>=0.4.6",
     "discord-ext-menus>=1.0.0a31",
     "discord-py[speed]>=2.6.0a5228",
+    "fastbloom-rs>=0.5.10",
     "jishaku",
     "mypy-extensions>=1.1.0",
     "nekos-py>=1.1.0",

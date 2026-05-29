@@ -189,6 +189,12 @@ class HoneypotIncident(SQLModel, table=True):
             'triggered_at',
             'id',
         ),
+        Index(
+            'uq_honeypot_incidents_guild_message',
+            'guild_id',
+            'message_id',
+            unique=True,
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
