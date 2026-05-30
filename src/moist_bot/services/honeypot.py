@@ -233,10 +233,10 @@ class HoneypotManager:
         author = message.author
         return (
             message.guild is None
-            or message.author.bot
             or message.webhook_id is not None
             or await self.bot.is_owner(author)
             or not isinstance(author, discord.Member)
+            or author == message.guild.me
             or author.guild_permissions.manage_guild
             or author.guild_permissions.administrator
         )
@@ -678,9 +678,12 @@ class HoneypotManager:
     ) -> None:
         """Run the full punishment flow for a honeypot trigger."""
 
-        if await self._message_was_handled(
-            guild_id=config.guild_id,
-            message_id=message.id,
+        if (
+            await self._message_was_handled(
+                guild_id=config.guild_id,
+                message_id=message.id,
+            )
+            or message.author.bot  # Special case for bots
         ):
             await self._delete_honeypot_message(message)
             return
@@ -858,10 +861,16 @@ class HoneypotManager:
     ) -> HoneypotScanBatchResult:
         """Handle all scanned honeypot messages for one member."""
 
+        if batch.member.bot:
+            deleted_count = await self._delete_scan_messages(messages=batch.messages)
+            return HoneypotScanBatchResult(messages_deleted=deleted_count)
+
         recorded_ids = await self._recorded_message_ids(
             guild_id=config.guild_id,
             message_ids=[message.id for message in batch.messages],
         )
+
+        # TODO(leah): bruh
         recorded_messages = [
             message for message in batch.messages if message.id in recorded_ids
         ]
