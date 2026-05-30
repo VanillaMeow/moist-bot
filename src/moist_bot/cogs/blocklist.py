@@ -401,9 +401,7 @@ class Blocklist(commands.Cog):
 
     @blocklist_permission.command(name='add')
     async def blocklist_permission_add(
-        self,
-        ctx: GuildContext,
-        permissions: list[str],
+        self, ctx: GuildContext, *permissions: str
     ) -> None:
         """Add permissions to this guild's command policy."""
         try:
@@ -437,9 +435,7 @@ class Blocklist(commands.Cog):
 
     @blocklist_permission.command(name='remove')
     async def blocklist_permission_remove(
-        self,
-        ctx: GuildContext,
-        permissions: list[str],
+        self, ctx: GuildContext, *permissions: str
     ) -> None:
         """Remove permissions from this guild's command policy."""
         try:

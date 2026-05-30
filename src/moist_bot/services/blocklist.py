@@ -22,6 +22,8 @@ from moist_bot.models import (
 from moist_bot.settings import settings
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from moist_bot.bot import MoistBot
@@ -147,7 +149,6 @@ class BlocklistManager:  # noqa: PLR0904
     @staticmethod
     def _normalize_channel_mode(mode: str) -> ChannelPolicyMode:
         """Coerce database strings into supported channel policy modes."""
-
         try:
             return ChannelPolicyMode(mode)
         except ValueError:
@@ -156,7 +157,6 @@ class BlocklistManager:  # noqa: PLR0904
     @staticmethod
     def normalize_permission_name(permission_name: str) -> str:
         """Return a canonical Discord permission flag name."""
-
         return permission_name.strip().lower().replace('-', '_').replace(' ', '_')
 
     @classmethod
@@ -510,6 +510,7 @@ class BlocklistManager:  # noqa: PLR0904
         """Add a permission flag to a guild channel policy."""
 
         permission_name = self.validate_permission_name(permission_name)
+
         async with self.bot.db_session_maker() as session:
             await self._ensure_channel_policy(session, guild_id)
             result = await session.execute(
@@ -664,17 +665,17 @@ class BlocklistManager:  # noqa: PLR0904
             and channel_id in policy.channel_ids
         ):
             return BlocklistDecision('Channel is denylisted.', 'channel_denylist')
+
         if policy.mode == ChannelPolicyMode.ALLOWLIST and (
             channel_id is None or channel_id not in policy.channel_ids
         ):
             return BlocklistDecision('Channel is not allowlisted.', 'channel_allowlist')
+
         if policy.permission_names and not self.has_any_permission(
-            user_permissions,
-            policy.permission_names,
+            user_permissions, policy.permission_names
         ):
             return BlocklistDecision(
-                'User is missing a required permission.',
-                'guild_policy_permission',
+                'User is missing a required permission.', 'guild_policy_permission'
             )
 
         return None
@@ -682,7 +683,7 @@ class BlocklistManager:  # noqa: PLR0904
     @staticmethod
     def has_any_permission(
         permissions: discord.Permissions | None,
-        permission_names: frozenset[str],
+        permission_names: Iterable[str],
     ) -> bool:
         """Return whether permissions include any configured policy flag."""
 
