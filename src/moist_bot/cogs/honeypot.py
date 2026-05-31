@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 from dataclasses import dataclass
 from inspect import cleandoc
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import discord
 from discord.ext import commands, menus
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.elements import ColumnElement
 
     from moist_bot.bot import MoistBot
-    from moist_bot.utils.context import GuildContext
+    from moist_bot.utils.context import Context, GuildContext
 
 
 INCIDENT_CONTENT_WIDTH = 36
@@ -47,18 +47,6 @@ HONEYPOT_ALERT_CONTENT = cleandoc(f"""
 **YOU HAVE BEEN WARNED. INTENTIONALLY SENDING MESSAGES WILL GET YOU BANNED WITH NO APPEALS.**
 # {ALERT}
 """)
-
-
-async def can_manage_honeypot(ctx: GuildContext) -> bool:
-    """Return whether a user can manage honeypot settings for this guild."""
-
-    if await ctx.bot.is_owner(ctx.author):
-        return True
-
-    if ctx.author.guild_permissions.manage_guild:
-        return True
-
-    raise commands.MissingPermissions(['manage_guild'])
 
 
 class HoneypotIncidentFlags(
@@ -306,6 +294,18 @@ async def send_honeypot_alert_message(
         return None
 
 
+async def can_manage_honeypot(ctx: GuildContext) -> bool:
+    """Return whether a user can manage honeypot settings for this guild."""
+
+    if await ctx.bot.is_owner(ctx.author):
+        return True
+
+    if ctx.author.guild_permissions.manage_messages:
+        return True
+
+    raise commands.MissingPermissions(['manage_messages'])
+
+
 class Honeypot(commands.Cog):
     """Honeypot moderation commands and message listener."""
 
@@ -316,9 +316,10 @@ class Honeypot(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{HONEY POT}')
 
-    async def cog_check(self, ctx: GuildContext) -> bool:  # type: ignore[override]
-        if ctx.guild is None:  # type: ignore[unreachable]
+    async def cog_check(self, ctx: Context) -> bool:  # type: ignore[reportIncompatibleMethodOverride]
+        if ctx.guild is None:
             raise commands.NoPrivateMessage
+        ctx = cast('GuildContext', ctx)
         return await can_manage_honeypot(ctx)
 
     async def cog_unload(self) -> None:
@@ -338,13 +339,13 @@ class Honeypot(commands.Cog):
         await self.bot.honeypot.delete_config(guild_id=guild.id)
 
     @commands.group(name='honeypot', invoke_without_command=True)
-    @commands.guild_only()
-    @commands.check(can_manage_honeypot)
     async def honeypot(self, ctx: GuildContext) -> None:
         """Manage this server's honeypot."""
         await ctx.send_help(ctx.command)
 
     @honeypot.command(name='set')
+    @commands.has_guild_permissions(manage_guild=True)
+    @commands.cooldown(rate=1, per=15, type=commands.BucketType.guild)
     async def honeypot_set(
         self,
         ctx: GuildContext,
@@ -404,6 +405,7 @@ class Honeypot(commands.Cog):
         await ctx.reply('\n'.join(lines))
 
     @honeypot.command(name='send')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def honeypot_send(
         self,
         ctx: GuildContext,
@@ -459,6 +461,8 @@ class Honeypot(commands.Cog):
         )
 
     @honeypot.command(name='toggle', aliases=['enable', 'disable'])
+    @commands.cooldown(rate=1, per=5, type=commands.BucketType.guild)
+    @commands.has_guild_permissions(manage_guild=True)
     async def honeypot_toggle(self, ctx: GuildContext) -> None:
         """Toggle this server's honeypot.
         You can also use `honeypot enable` or `honeypot disable`.
@@ -492,6 +496,7 @@ class Honeypot(commands.Cog):
         await ctx.reply(f':white_check_mark: Honeypot {action}.')
 
     @honeypot.command(name='show')
+    @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def honeypot_show(self, ctx: GuildContext) -> None:
         """Show this server's honeypot config."""
 
@@ -519,6 +524,7 @@ class Honeypot(commands.Cog):
         )
 
     @honeypot.command(name='scan')
+    @commands.cooldown(rate=1, per=15, type=commands.BucketType.guild)
     async def honeypot_scan(
         self,
         ctx: GuildContext,
@@ -561,6 +567,7 @@ class Honeypot(commands.Cog):
         )
 
     @honeypot.command(name='history', aliases=['logs', 'incidents'])
+    @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def honeypot_history(
         self,
         ctx: GuildContext,
