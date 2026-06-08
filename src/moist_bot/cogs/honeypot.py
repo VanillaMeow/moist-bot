@@ -571,7 +571,7 @@ class Honeypot(commands.Cog):
     async def honeypot_history(
         self,
         ctx: GuildContext,
-        user: discord.Member | None = None,
+        user: discord.User | None = None,
         *,
         flags: HoneypotIncidentFlags,
     ) -> None:
