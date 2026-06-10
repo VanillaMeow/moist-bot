@@ -339,6 +339,7 @@ class Honeypot(commands.Cog):
         await self.bot.honeypot.delete_config(guild_id=guild.id)
 
     @commands.group(name='honeypot', invoke_without_command=True)
+    @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def honeypot(self, ctx: GuildContext) -> None:
         """Manage this server's honeypot."""
         await ctx.send_help(ctx.command)

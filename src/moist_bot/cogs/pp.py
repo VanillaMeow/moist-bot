@@ -28,6 +28,7 @@ class Pp(commands.Cog):
         return discord.PartialEmoji(name='\N{AUBERGINE}')
 
     @commands.command()
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.member)
     async def pp(self, ctx: Context, *, user: discord.User = commands.Author):
         """Measure your pp."""
 

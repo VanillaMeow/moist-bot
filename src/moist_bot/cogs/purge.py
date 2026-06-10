@@ -207,6 +207,7 @@ class Purge(commands.Cog):
     @app_commands.guild_only()
     @app_commands.default_permissions(manage_messages=True)
     @app_commands.describe(limit='Number of messages to remove (1-2000)')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def purge(self, ctx: GuildContext, limit: int = 100, *, flags: PurgeFlags):
         """Remove messages from the channel.
 
@@ -220,6 +221,7 @@ class Purge(commands.Cog):
         member='The user whose messages to remove',
         limit='Number of messages to search through (1-2000)',
     )
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def user(
         self,
         ctx: GuildContext,
@@ -238,6 +240,7 @@ class Purge(commands.Cog):
         bot='Specific bot to filter by (omit for all bots)',
         limit='Number of messages to search through (1-2000)',
     )
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def bots(
         self,
         ctx: GuildContext,
@@ -260,6 +263,7 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(limit='Number of messages to search through (1-2000)')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def humans(self, ctx: GuildContext, limit: int = 100, *, flags: PurgeFlags):
         """Remove messages sent by humans."""
         await self._validate_and_purge(
@@ -268,6 +272,7 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(limit='Number of messages to search through (1-2000)')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def webhooks(
         self, ctx: GuildContext, limit: int = 100, *, flags: WebhookPurgeFlags
     ):
@@ -284,6 +289,7 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(limit='Number of messages to search through (1-2000)')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def embeds(self, ctx: GuildContext, limit: int = 100, *, flags: PurgeFlags):
         """Remove messages containing embeds."""
         await self._validate_and_purge(
@@ -292,6 +298,7 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(limit='Number of messages to search through (1-2000)')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def files(self, ctx: GuildContext, limit: int = 100, *, flags: PurgeFlags):
         """Remove messages with attachments."""
         await self._validate_and_purge(
@@ -300,6 +307,7 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(limit='Number of messages to search through (1-2000)')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def images(self, ctx: GuildContext, limit: int = 100, *, flags: PurgeFlags):
         """Remove messages with image attachments or image embeds."""
 
@@ -312,6 +320,7 @@ class Purge(commands.Cog):
         await self._validate_and_purge(ctx, limit, check=check, flags=flags)
 
     @purge.command()
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def contains(self, ctx: GuildContext, *, flags: TextPurgeFlags):
         """Remove messages containing a substring (case-insensitive)."""
         lowered = flags.text.lower()
@@ -320,6 +329,7 @@ class Purge(commands.Cog):
         )
 
     @purge.command()
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def startswith(self, ctx: GuildContext, *, flags: TextPurgeFlags):
         """Remove messages starting with a string (case-insensitive)."""
         lowered = flags.text.lower()
@@ -331,6 +341,7 @@ class Purge(commands.Cog):
         )
 
     @purge.command()
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def endswith(self, ctx: GuildContext, *, flags: TextPurgeFlags):
         """Remove messages ending with a string (case-insensitive)."""
         lowered = flags.text.lower()
@@ -343,6 +354,7 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(limit='Number of messages to search through (1-2000)')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def links(self, ctx: GuildContext, limit: int = 100, *, flags: PurgeFlags):
         """Remove messages containing URLs."""
         url_re = re.compile(r'https?://\S+')
@@ -352,6 +364,7 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(limit='Number of messages to search through (1-2000)')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def mentions(self, ctx: GuildContext, limit: int = 100, *, flags: PurgeFlags):
         """Remove messages that mention users."""
         await self._validate_and_purge(
@@ -360,6 +373,7 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(limit='Number of messages to search through (1-2000)')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def emoji(self, ctx: GuildContext, limit: int = 100, *, flags: PurgeFlags):
         """Remove messages that consist entirely of emoji."""
         custom_re = re.compile(r'<a?:\w+:\d+>')
@@ -384,6 +398,7 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(limit='Number of messages to scan (1-2000)')
+    @commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
     async def reactions(
         self, ctx: GuildContext, limit: int = 100, *, flags: PurgeFlags
     ):
@@ -416,6 +431,7 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(limit='Number of messages to search through (1-2000)')
+    @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def pins(self, ctx: GuildContext, limit: int = 100, *, flags: PurgeFlags):
         """Remove non-pinned messages (clean a channel while preserving pins)."""
         await self._validate_and_purge(
@@ -423,6 +439,7 @@ class Purge(commands.Cog):
         )
 
     @purge.command(name='after', with_app_command=False)
+    @commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
     async def purge_after(self, ctx: GuildContext, message: discord.Message):
         """Remove all messages after a given message ID or link (up to 2000)."""
         confirm = await ctx.prompt(
@@ -440,6 +457,7 @@ class Purge(commands.Cog):
         await self._send_result(ctx, deleted)
 
     @purge.command(name='before', with_app_command=False)
+    @commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
     async def purge_before(
         self, ctx: GuildContext, message: discord.Message, limit: int = 100
     ):
@@ -447,6 +465,7 @@ class Purge(commands.Cog):
         await self._validate_and_purge(ctx, limit, before=message)
 
     @purge.command(with_app_command=False)
+    @commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
     async def between(
         self,
         ctx: GuildContext,
@@ -472,6 +491,7 @@ class Purge(commands.Cog):
         await self._send_result(ctx, deleted)
 
     @purge.command()
+    @commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
     async def regex(self, ctx: GuildContext, *, flags: RegexPurgeFlags):
         """Remove messages matching a regex pattern."""
         try:

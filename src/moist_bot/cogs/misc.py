@@ -42,10 +42,12 @@ class Miscellaneous(commands.Cog):
         await message.edit(content=f'{msg} in {int(ping)}ms')
 
     @commands.command()
+    @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def say(self, ctx: Context, *, msg: Annotated[str, escape_mentions]):
         await ctx.send(msg)
 
     @commands.command()
+    @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def stutter(self, ctx: Context, *, msg: Annotated[str, escape_mentions]):
         stuttered_msg = '  '.join(
             f'{word[0]}-{word[0]}-{word}' for word in msg.split(' ')

@@ -664,6 +664,7 @@ class Stats(commands.Cog):
 
     @stats.group(name='history', invoke_without_command=True)
     @commands.guild_only()
+    @commands.cooldown(rate=1, per=30, type=commands.BucketType.member)
     async def stats_history(
         self,
         ctx: GuildContext,
@@ -687,6 +688,7 @@ class Stats(commands.Cog):
 
     @stats_history.command(name='command')
     @commands.check(can_view_history)
+    @commands.cooldown(rate=1, per=30, type=commands.BucketType.member)
     async def stats_history_command(
         self,
         ctx: GuildContext,
