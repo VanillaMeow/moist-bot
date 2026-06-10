@@ -50,7 +50,7 @@ class Meow(commands.Cog):
         return discord.PartialEmoji(name='\N{CAT FACE}')
 
     @commands.command()
-    @commands.cooldown(rate=1, per=1, type=commands.BucketType.member)
+    @commands.cooldown(rate=1, per=20, type=commands.BucketType.member)
     async def meow(self, ctx: Context, random_size: int | None = None):
         """Generate a random meow."""
         random_size = random_size or randint(15, 130)
