@@ -50,9 +50,12 @@ class Meow(commands.Cog):
         return discord.PartialEmoji(name='\N{CAT FACE}')
 
     @commands.command()
-    @commands.cooldown(rate=1, per=20, type=commands.BucketType.member)
+    @commands.cooldown(rate=1, per=30, type=commands.BucketType.member)
     async def meow(self, ctx: Context, random_size: int | None = None):
         """Generate a random meow."""
+        if random_size is not None and random_size < 1:
+            return await ctx.reply(":warning: Amount must be at least 1.")
+
         random_size = random_size or randint(15, 130)
 
         # Initially limit length
