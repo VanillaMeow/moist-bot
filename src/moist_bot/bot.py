@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast, overload
 
@@ -41,7 +43,6 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger('discord.' + __name__)
-
 
 # Aliases
 CYAN, RESET = Fore.CYAN, Fore.RESET
@@ -140,6 +141,7 @@ class MoistBot(commands.Bot):
         self.cooldowns: dict[tuple[int, str], datetime] = {}
         self.started_at: datetime = DATETIME_NEVER
         self.is_shutting_down: asyncio.Event = asyncio.Event()
+        self._executor_lock: asyncio.Lock = asyncio.Lock()
         self.synced: bool = True
 
         # Database
@@ -171,7 +173,7 @@ class MoistBot(commands.Bot):
                 log.exception(f'Failed to load extension {CYAN}{name}{RESET}.')
 
     async def setup_hook(self) -> None:
-        self.executor = ProcessPoolExecutor(max_workers=4)
+        self.executor = self._create_process_pool()
         self.session = aiohttp.ClientSession()
 
         tasks = [
@@ -448,6 +450,36 @@ class MoistBot(commands.Bot):
                     f'in guild {member.guild} ({member.guild.id}).'
                 )
             raise
+
+    @staticmethod
+    def _create_process_pool() -> ProcessPoolExecutor:
+        return ProcessPoolExecutor(max_workers=min(os.process_cpu_count() or 1, 4))
+
+    async def _replace_process_pool(self, failed_executor: ProcessPoolExecutor) -> None:
+        async with self._executor_lock:
+            if self.executor is not failed_executor:
+                return
+
+            self.executor = self._create_process_pool()
+            failed_executor.shutdown(wait=False, cancel_futures=True)
+            log.warning('Replaced broken process pool executor.')
+
+    async def run_in_process_pool[T](
+        self,
+        func: Callable[..., T],
+        *args: Any,
+    ) -> T:
+        """Run CPU-heavy work in the shared process pool."""
+
+        loop = asyncio.get_running_loop()
+        executor = self.executor
+
+        try:
+            return await loop.run_in_executor(executor, func, *args)
+        except BrokenProcessPool:
+            log.exception('Process pool broke while running %s.', func)
+            await self._replace_process_pool(executor)
+            return await loop.run_in_executor(self.executor, func, *args)
 
     @property
     def config(self) -> Any:

@@ -18,19 +18,39 @@ if TYPE_CHECKING:
 
 RESOLUTION = 150, 150
 PETPET_FRAMES_PATH = ASSETS_FOLDER_PATH / 'petpet'
+PETPET_FRAME_BYTES: list[bytes] = []
 PETPET_FRAMES: list[Image.Image] = []
+PETPET_FRAMES_SOURCE: list[bytes] = []
 
 
-async def load_petpet_frames() -> None:
-    frame_paths = [frame async for frame in PETPET_FRAMES_PATH.iterdir()]
+def load_petpet_frames_from_bytes(frame_bytes: list[bytes]) -> None:
+    """Load frames from bytes for worker pool."""
+    if PETPET_FRAMES and frame_bytes == PETPET_FRAMES_SOURCE:
+        return
 
-    for frame in sorted(frame_paths, key=lambda path: path.name):
+    PETPET_FRAMES.clear()
+    for frame in frame_bytes:
         petpet_frame = (
-            Image.open(str(frame))
+            Image.open(BytesIO(frame))
             .convert('RGBA')
             .resize(RESOLUTION, resample=Image.Resampling.BICUBIC)
         )
         PETPET_FRAMES.append(petpet_frame)
+
+    PETPET_FRAMES_SOURCE.clear()
+    PETPET_FRAMES_SOURCE.extend(frame_bytes)
+
+
+async def load_petpet_frame_bytes() -> None:
+    """Load frames from disk for main thread."""
+    frame_paths = [frame async for frame in PETPET_FRAMES_PATH.iterdir()]
+    PETPET_FRAME_BYTES.clear()
+    PETPET_FRAME_BYTES.extend(
+        [
+            await frame.read_bytes()
+            for frame in sorted(frame_paths, key=lambda p: p.name)
+        ]
+    )
 
 
 class PetPetCreator:
@@ -39,8 +59,10 @@ class PetPetCreator:
     _base_img: Image.Image
     gif_buffer: BytesIO
 
-    def __init__(self, image_buffer: BytesIO) -> None:
-        self._image_buffer = image_buffer
+    def __init__(self, image_bytes: bytes, frame_bytes: list[bytes]) -> None:
+        load_petpet_frames_from_bytes(frame_bytes)
+
+        self._image_buffer = BytesIO(image_bytes)
 
         self.resolution = RESOLUTION
         self.max_frames = len(self._pet_hand_frames)
@@ -133,6 +155,10 @@ class PetPetCreator:
         # mask = mask.filter(ImageFilter.SMOOTH)  # Smooth edges
 
 
+def create_petpet_buffer(img_bytes: bytes, frame_bytes: list[bytes]) -> BytesIO:
+    return PetPetCreator(img_bytes, frame_bytes).create_gif()
+
+
 class PetPetEmbed(discord.Embed):
     def __init__(
         self,
@@ -151,15 +177,10 @@ class PetPetEmbed(discord.Embed):
 class PetPet(commands.Cog):
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
-        self.execute = self.bot.loop.run_in_executor
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{WAVING HAND SIGN}')
-
-    @staticmethod
-    def _get_buffer(img_buffer: BytesIO) -> BytesIO:
-        return PetPetCreator(img_buffer).create_gif()
 
     @commands.cooldown(rate=1, per=4, type=commands.BucketType.member)
     @app_commands.describe(user='The target user.')
@@ -182,7 +203,11 @@ class PetPet(commands.Cog):
             await user.display_avatar.with_format('png').save(fp=img_buffer)
 
         # Avoid blocking
-        img_buffer = await self.execute(self.bot.executor, self._get_buffer, img_buffer)
+        img_buffer = await self.bot.run_in_process_pool(
+            create_petpet_buffer,
+            img_buffer.getvalue(),
+            PETPET_FRAME_BYTES,
+        )
 
         # Send image
         file = discord.File(fp=img_buffer, filename='petpet.gif')
@@ -190,7 +215,6 @@ class PetPet(commands.Cog):
 
 
 async def setup(bot: MoistBot) -> None:
-    if not PETPET_FRAMES:
-        await load_petpet_frames()
+    await load_petpet_frame_bytes()
 
     await bot.add_cog(PetPet(bot))
