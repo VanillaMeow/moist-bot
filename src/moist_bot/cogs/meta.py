@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import discord
 from discord.ext import commands, menus
 
+from moist_bot.utils.checks import has_guild_permissions_or_dm
 from moist_bot.utils.paginator import RoboPages
 
 if TYPE_CHECKING:
@@ -343,6 +344,8 @@ class Meta(commands.Cog):
             await ctx.reply(str(error))
 
     @commands.command()
+    @commands.cooldown(rate=1, per=8, type=commands.BucketType.member)
+    @has_guild_permissions_or_dm(manage_messages=True)
     async def charinfo(self, ctx: Context, *, characters: str):
         """Shows you information about a number of characters.
 
