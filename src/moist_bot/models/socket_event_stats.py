@@ -51,9 +51,17 @@ class SocketEventStats(SQLModel, table=True):
             existing.total_events += count
 
     @classmethod
+    async def total_events_for_type(cls, session: AsyncSession, event_type: str) -> int:
+        """Return the total gateway event count for a given event type."""
+        result = await session.execute(
+            select(cls.total_events).where(col(cls.event_type) == event_type).limit(1)
+        )
+        return result.scalar_one_or_none() or 0
+
+    @classmethod
     async def total_events_count(cls, session: AsyncSession) -> int:
         """Return the all-time total gateway event count."""
 
         total_events = func.coalesce(func.sum(col(cls.total_events)), 0)
         result = await session.execute(select(total_events))
-        return int(result.scalar_one())
+        return result.scalar_one()
