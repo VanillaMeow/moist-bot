@@ -83,10 +83,7 @@ class MessageBloomFilter:
         )
 
     def maybe_contained_ids(
-        self,
-        *,
-        guild_id: int,
-        message_ids: list[int],
+        self, *, guild_id: int, message_ids: list[int]
     ) -> list[int]:
         """Return message IDs that may be in the filter."""
 
@@ -322,8 +319,7 @@ class HoneypotManager:
         """Return whether a message is already represented in incident history."""
 
         if not self._handled_message_bloom.might_contain(
-            guild_id=guild_id,
-            message_id=message_id,
+            guild_id=guild_id, message_id=message_id
         ):
             return False
 
@@ -407,26 +403,18 @@ class HoneypotManager:
         """Disable a guild honeypot config if one exists."""
 
         return await self.set_config_enabled(
-            guild_id=guild_id,
-            enabled=False,
-            updated_by_id=updated_by_id,
+            guild_id=guild_id, enabled=False, updated_by_id=updated_by_id
         )
 
     async def enable_config(self, *, guild_id: int, updated_by_id: int) -> bool:
         """Enable a guild honeypot config if one exists."""
 
         return await self.set_config_enabled(
-            guild_id=guild_id,
-            enabled=True,
-            updated_by_id=updated_by_id,
+            guild_id=guild_id, enabled=True, updated_by_id=updated_by_id
         )
 
     async def set_config_enabled(
-        self,
-        *,
-        guild_id: int,
-        enabled: bool,
-        updated_by_id: int,
+        self, *, guild_id: int, enabled: bool, updated_by_id: int
     ) -> bool:
         """Set whether a guild honeypot config is enabled if one exists."""
 
@@ -475,10 +463,7 @@ class HoneypotManager:
         return True
 
     async def _recorded_message_ids(
-        self,
-        *,
-        guild_id: int,
-        message_ids: list[int],
+        self, *, guild_id: int, message_ids: list[int]
     ) -> set[int]:
         """Return already-recorded honeypot message IDs."""
 
@@ -502,17 +487,14 @@ class HoneypotManager:
         """Record one completed incident and update stats."""
 
         if await self._message_was_handled(
-            guild_id=incident.guild_id,
-            message_id=incident.message_id,
+            guild_id=incident.guild_id, message_id=incident.message_id
         ):
             return False
 
         async with self.bot.db_session_maker() as session:
             await HoneypotGuildStats.increment(session, guild_id=incident.guild_id)
             await HoneypotUserStats.increment(
-                session,
-                guild_id=incident.guild_id,
-                user_id=incident.user_id,
+                session, guild_id=incident.guild_id, user_id=incident.user_id
             )
             session.add(incident)
             try:
@@ -680,8 +662,7 @@ class HoneypotManager:
 
         if (
             await self._message_was_handled(
-                guild_id=config.guild_id,
-                message_id=message.id,
+                guild_id=config.guild_id, message_id=message.id
             )
             or message.author.bot  # Special case for bots
         ):
@@ -689,18 +670,13 @@ class HoneypotManager:
             return
 
         trigger_count = self._next_trigger_count(
-            guild_id=config.guild_id,
-            user_id=message.author.id,
+            guild_id=config.guild_id, user_id=message.author.id
         )
         punishment = await self.punish_member(
-            message.author,
-            trigger_count=trigger_count,
+            message.author, trigger_count=trigger_count
         )
         await self._log_and_record_trigger(
-            message=message,
-            member=message.author,
-            config=config,
-            punishment=punishment,
+            message=message, member=message.author, config=config, punishment=punishment
         )
 
     async def _delete_honeypot_message(self, message: GuildMessage) -> bool:
@@ -885,13 +861,11 @@ class HoneypotManager:
             return HoneypotScanBatchResult(messages_deleted=recorded_deleted_count)
 
         oldest_message = min(
-            unrecorded_messages,
-            key=lambda message: message.created_at,
+            unrecorded_messages, key=lambda message: message.created_at
         )
         delete_message_seconds = self._delete_seconds_for_oldest_message(oldest_message)
         trigger_count = self._next_trigger_count(
-            guild_id=config.guild_id,
-            user_id=batch.member.id,
+            guild_id=config.guild_id, user_id=batch.member.id
         )
         punishment = await self.punish_member(
             batch.member,
@@ -936,10 +910,7 @@ class HoneypotManager:
         )
 
     async def _scan_config(
-        self,
-        *,
-        config: GuildHoneypotConfig,
-        before: datetime,
+        self, *, config: GuildHoneypotConfig, before: datetime
     ) -> HoneypotScanResult:
         """Scan one honeypot config and return summary counts."""
 
@@ -963,10 +934,7 @@ class HoneypotManager:
         return result
 
     async def _scan_config_with_lock(
-        self,
-        *,
-        config: GuildHoneypotConfig,
-        before: datetime,
+        self, *, config: GuildHoneypotConfig, before: datetime
     ) -> HoneypotScanResult:
         """Scan one config while enforcing one active scan per guild."""
 
@@ -978,10 +946,7 @@ class HoneypotManager:
             return await self._scan_config(config=config, before=before)
 
     async def scan_guild(
-        self,
-        guild_id: int,
-        *,
-        ignore_disabled: bool = False,
+        self, guild_id: int, *, ignore_disabled: bool = False
     ) -> HoneypotScanResult:
         """Scan the configured honeypot channel for one guild."""
 
@@ -1000,10 +965,7 @@ class HoneypotManager:
         return result
 
     async def _scan_enabled_config(
-        self,
-        *,
-        config: GuildHoneypotConfig,
-        before: datetime,
+        self, *, config: GuildHoneypotConfig, before: datetime
     ) -> HoneypotScanResult:
         """Scan one enabled config for a multi-guild scan."""
 
@@ -1037,10 +999,7 @@ class HoneypotManager:
         async with asyncio.TaskGroup() as task_group:
             tasks = [
                 task_group.create_task(
-                    self._scan_enabled_config(
-                        config=config,
-                        before=scan_started_at,
-                    )
+                    self._scan_enabled_config(config=config, before=scan_started_at)
                 )
                 for config in configs
             ]
