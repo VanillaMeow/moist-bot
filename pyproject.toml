@@ -39,6 +39,12 @@ dependencies = [
     "uvloop>=0.22.1 ; os_name == 'posix'",
 ]
 
+[dependency-groups]
+dev = [
+    "pyright>=1.1.409",
+    "ruff>=0.15.14",
+]
+
 [tool.uv.sources]
 discord-py = { git = "https://github.com/Rapptz/discord.py", rev = "master" }
 discord-ext-menus = { git = "https://github.com/Rapptz/discord-ext-menus", rev = "master" }
@@ -87,6 +93,7 @@ ignore = [
     "C901",
     "PLR0914",
     "PLR0915",
+    "PLR0904",
 
     # Umbra preset
     "ANN401",
@@ -121,12 +128,6 @@ quote-style = "single"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
-
-[dependency-groups]
-dev = [
-    "pyright>=1.1.409",
-    "ruff>=0.15.14",
-]
 
 [tool.ruff.lint.isort]
 split-on-trailing-comma = true
