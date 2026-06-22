@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 
-class HoneypotManager:  # noqa: PLR0904
+class HoneypotManager:
     """Manage persistent honeypot config and incident records."""
 
     def __init__(self, bot: MoistBot) -> None:
@@ -448,9 +448,7 @@ class HoneypotManager:  # noqa: PLR0904
             return
 
         async with lock:
-            trigger_count = self.next_trigger_count(
-                config.guild_id, message.author.id
-            )
+            trigger_count = self.next_trigger_count(config.guild_id, message.author.id)
             punishment = await self.punish_member(
                 message.author, trigger_count=trigger_count
             )
@@ -584,22 +582,17 @@ class HoneypotManager:  # noqa: PLR0904
             )
             return result.scalar_one_or_none() is not None
 
-    def _increment_incident_count(self, guild_id: int) -> None:
-        """Increment the cached guild incident total."""
-        self._incident_counts[guild_id] += 1
-
     def _mark_incident_handled(self, incident: HoneypotIncident) -> None:
         """Reflect a recorded incident in the in-memory caches."""
 
-        self._increment_incident_count(incident.guild_id)
+        self._incident_counts[incident.guild_id] += 1
         user_key = (incident.guild_id, incident.user_id)
         self._user_incident_counts[user_key] = max(
-            self._user_incident_counts[user_key],
-            incident.trigger_count,
+            self._user_incident_counts[user_key], incident.trigger_count
         )
+
         self._handled_message_bloom.add(
-            guild_id=incident.guild_id,
-            message_id=incident.message_id,
+            guild_id=incident.guild_id, message_id=incident.message_id
         )
 
     async def _rebuild_handled_message_bloom(self) -> None:
