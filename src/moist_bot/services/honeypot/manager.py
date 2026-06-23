@@ -574,13 +574,15 @@ class HoneypotManager:
             return False
 
         async with self.bot.db_session_maker() as session:
-            result = await session.execute(
-                select(HoneypotIncident.id).where(
+            incident_id = await session.scalar(
+                select(HoneypotIncident.id)
+                .where(
                     col(HoneypotIncident.guild_id) == guild_id,
                     col(HoneypotIncident.message_id) == message_id,
                 )
+                .limit(1)
             )
-            return result.scalar_one_or_none() is not None
+            return incident_id is not None
 
     def _mark_incident_handled(self, incident: HoneypotIncident) -> None:
         """Reflect a recorded incident in the in-memory caches."""

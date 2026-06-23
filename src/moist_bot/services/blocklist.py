@@ -75,7 +75,7 @@ class BlocklistDecision:
     scope: str
 
 
-class BlocklistManager:  # noqa: PLR0904
+class BlocklistManager:
     """Manage persistent blocklist state and fast runtime checks.
 
     The database is the source of truth, while the sets in this class are the
@@ -386,14 +386,15 @@ class BlocklistManager:  # noqa: PLR0904
 
         async with self.bot.db_session_maker() as session:
             await self._ensure_channel_policy(session, guild_id)
-            result = await session.execute(
-                select(GuildChannelPolicyChannel).where(
+            existing_id = await session.scalar(
+                select(GuildChannelPolicyChannel.id)
+                .where(
                     col(GuildChannelPolicyChannel.guild_id) == guild_id,
                     col(GuildChannelPolicyChannel.channel_id) == channel_id,
                 )
+                .limit(1)
             )
-            existing = result.scalar_one_or_none()
-            if existing is not None:
+            if existing_id is not None:
                 return False
 
             session.add(
@@ -437,12 +438,12 @@ class BlocklistManager:  # noqa: PLR0904
     ) -> None:
         """Create the parent policy row before channel rows are attached."""
 
-        result = await session.execute(
-            select(GuildChannelPolicy).where(
-                col(GuildChannelPolicy.guild_id) == guild_id
-            )
+        policy_id = await session.scalar(
+            select(GuildChannelPolicy.guild_id)
+            .where(col(GuildChannelPolicy.guild_id) == guild_id)
+            .limit(1)
         )
-        if result.scalar_one_or_none() is None:
+        if policy_id is None:
             session.add(GuildChannelPolicy(guild_id=guild_id))
 
     async def remove_channel(
@@ -513,15 +514,16 @@ class BlocklistManager:  # noqa: PLR0904
 
         async with self.bot.db_session_maker() as session:
             await self._ensure_channel_policy(session, guild_id)
-            result = await session.execute(
-                select(GuildChannelPolicyPermission).where(
+            existing_id = await session.scalar(
+                select(GuildChannelPolicyPermission.id)
+                .where(
                     col(GuildChannelPolicyPermission.guild_id) == guild_id,
                     col(GuildChannelPolicyPermission.permission_name)
                     == permission_name,
                 )
+                .limit(1)
             )
-            existing = result.scalar_one_or_none()
-            if existing is not None:
+            if existing_id is not None:
                 return False
 
             session.add(
