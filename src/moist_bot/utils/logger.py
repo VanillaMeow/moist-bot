@@ -4,12 +4,17 @@ __all__ = ('setup_alembic_logging', 'setup_logging')
 
 import logging
 from contextlib import contextmanager
-from logging.handlers import RotatingFileHandler
+from logging.handlers import QueueHandler, QueueListener, TimedRotatingFileHandler
+from queue import SimpleQueue
 from typing import TYPE_CHECKING, cast
 
 from colorama import Back, Fore, Style
 
 from moist_bot.constants import LOGS_FOLDER_PATH
+
+_FILE_RETENTION_DAYS = 30
+_FILE_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+_FILE_FORMAT = '[{asctime}] [{levelname:<8}] {name}: {message}'
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -53,6 +58,25 @@ class _ColorFormatter(logging.Formatter):
         return output
 
 
+class _LocalQueueHandler(QueueHandler):
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        return record
+
+
+class _LoggerNameFilter(logging.Filter):
+    def __init__(self, logger_name: str, *, include: bool) -> None:
+        super().__init__()
+        self._logger_name = logger_name
+        self._logger_prefix = f'{logger_name}.'
+        self._include = include
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        matches_logger = record.name == self._logger_name or record.name.startswith(
+            self._logger_prefix
+        )
+        return matches_logger if self._include else not matches_logger
+
+
 def setup_alembic_logging() -> None:
     """Configure Alembic console logging with the bot formatter."""
 
@@ -76,47 +100,98 @@ def setup_alembic_logging() -> None:
     logging.getLogger('sqlalchemy').setLevel(logging.WARNING)
 
 
+def _create_debug_file_handler(
+    filename: str,
+    *,
+    logger_name: str | None = None,
+    include_logger: bool = True,
+) -> TimedRotatingFileHandler:
+    handler = TimedRotatingFileHandler(
+        filename=LOGS_FOLDER_PATH / filename,
+        when='midnight',
+        backupCount=_FILE_RETENTION_DAYS,
+        encoding='utf-8',
+    )
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter(_FILE_FORMAT, _FILE_DATE_FORMAT, style='{'))
+
+    if logger_name is not None:
+        handler.addFilter(_LoggerNameFilter(logger_name, include=include_logger))
+
+    return handler
+
+
 @contextmanager
 def setup_logging() -> Generator[None, Any]:
     root_log = logging.getLogger()
 
-    try:  # noqa: PLW0717
-        # __enter__
-        handler = logging.StreamHandler()
-        handler.setFormatter(_ColorFormatter())
-        root_log.addHandler(handler)
-        root_log.setLevel(logging.DEBUG)
+    # Create queue handler
+    log_queue: SimpleQueue[logging.LogRecord | None] = SimpleQueue()
+    queue_handler = _LocalQueueHandler(log_queue)
+    queue_handler.setLevel(logging.DEBUG)
 
+    # Create stream handler
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(_ColorFormatter())
+    stream_handler.setLevel(logging.INFO)
+
+    # Create file handlers
+    file_handler = _create_debug_file_handler(
+        'discord.log',
+        logger_name='aiosqlite',
+        include_logger=False,
+    )
+    aiosqlite_file_handler = _create_debug_file_handler(
+        'aiosqlite.log',
+        logger_name='aiosqlite',
+    )
+
+    # Create listener
+    listener = QueueListener(
+        log_queue,
+        stream_handler,
+        file_handler,
+        aiosqlite_file_handler,
+        respect_handler_level=True,
+    )
+    listener_started = False
+
+    # ruff: noqa: PLW0717
+    try:
+        # __enter__
+        # Clear root handlers
+        for handler in root_log.handlers[:]:
+            root_log.removeHandler(handler)
+            handler.close()
+
+        # Install queue handler
+        root_log.setLevel(logging.DEBUG)
+        root_log.addHandler(queue_handler)
+
+        # Set logging levels
         logging.getLogger('discord').setLevel(logging.INFO)
         logging.getLogger('discord.http').setLevel(logging.WARNING)
         logging.getLogger('discord.gateway').setLevel(logging.DEBUG)
+        logging.getLogger('aiosqlite').setLevel(logging.DEBUG)
         # logging.getLogger('discord.state').addFilter(RemoveNoise())
 
-        # Set stream handlers to INFO level
-        for handler in root_log.handlers:
-            if isinstance(handler, logging.StreamHandler):
-                handler.setLevel(logging.INFO)
-
-        # Setup file logging
-        max_bytes = 32 * 1024 * 1024  # 32 MiB
-        dt_fmt = '%Y-%m-%d %H:%M:%S'
-        fmt = '[{asctime}] [{levelname:<8}] {name}: {message}'
-
-        file_handler = RotatingFileHandler(
-            filename=LOGS_FOLDER_PATH / 'discord.log',
-            maxBytes=max_bytes,
-            encoding='utf-8',
-            backupCount=3,
-            mode='w',
-        )
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(logging.Formatter(fmt, dt_fmt, style='{'))
-        root_log.addHandler(file_handler)
+        # Start listener
+        listener.start()
+        listener_started = True
 
         yield
     finally:
         # __exit__
-        handlers = root_log.handlers[:]
-        for handler in handlers:
+        if listener_started:
+            listener.stop()
+
+        if queue_handler in root_log.handlers[:]:
+            root_log.removeHandler(queue_handler)
+
+        for handler in (
+            queue_handler,
+            stream_handler,
+            file_handler,
+            aiosqlite_file_handler,
+        ):
             handler.close()
-            root_log.removeHandler(handler)
