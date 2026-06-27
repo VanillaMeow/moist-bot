@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 import discord
 from discord.ext import commands, menus
+from discord.utils import utcnow
 from sqlmodel import col
 
 from moist_bot.models import HoneypotIncident
@@ -101,39 +102,45 @@ class HoneypotStatsEmbed(discord.Embed):
         self,
         guild: discord.Guild,
         *,
+        guild_members: int,
         total_incidents: int,
         unique_cases: int,
         rejoined: int,
     ) -> None:
         super().__init__(
-            title='Honeypot Stats',
-            description='Current incident history and member-cache rejoin status.',
+            title='\N{HONEY POT} Honeypot Stats',
             colour=discord.Colour.gold(),
+            timestamp=utcnow(),
         )
         percent_rejoined = rejoined / unique_cases if unique_cases else 0
+        percent_triggered = unique_cases / guild_members if guild_members else 0
 
         self.set_author(
             name=guild.name,
             icon_url=guild.icon.url if guild.icon else None,
         )
         self.add_field(
-            name='Unique cases',
-            value=f'{unique_cases:,}',
-        )
-        self.add_field(
-            name='Rejoined',
-            value=f'{rejoined:,}',
-        )
-        self.add_field(
-            name='Percent rejoined',
-            value=f'{percent_rejoined:.2%}',
-        )
-        self.add_field(
-            name='Total incidents',
+            name='Total Incidents',
             value=f'{total_incidents:,}',
             inline=False,
         )
-        self.set_footer(text='Rejoined is based on the current guild member cache.')
+        self.add_field(
+            name='Unique Members',
+            value=f'{unique_cases:,}',
+        )
+        self.add_field(
+            name='Rejoined Members',
+            value=f'{rejoined:,}',
+        )
+        self.add_field(
+            name='% Rejoined',
+            value=f'{percent_rejoined:.2%}',
+        )
+        self.add_field(
+            name='% Triggered',
+            value=f'{percent_triggered:.2%} of {guild_members:,} total guild members',
+            inline=False,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,43 +149,6 @@ class HoneypotIncidentPage:
 
     page_number: int
     rows: list[HoneypotIncident]
-
-
-def format_incident_table(
-    rows: Iterable[HoneypotIncident],
-    *,
-    start_index: int,
-    include_user: bool,
-) -> str:
-    """Render incident rows as a compact text table."""
-
-    table = formats.TabularData()
-
-    columns = ['#', 'Triggered', 'Action', 'Success', 'Count']
-    if include_user:
-        columns.append('User')
-    columns.append('Content')
-    table.set_columns(columns)
-
-    rendered_rows: list[list[str]] = []
-    for index, incident in enumerate(rows, start=start_index):
-        triggered_at = normalize_datetime(incident.triggered_at)
-        triggered = triggered_at.strftime('%Y-%m-%d %H:%M')
-        content = incident.content_excerpt or ''
-        row = [
-            str(index),
-            triggered,
-            incident.punishment_action,
-            'yes' if incident.punishment_succeeded else 'no',
-            str(incident.trigger_count),
-        ]
-        if include_user:
-            row.append(str(incident.user_id))
-        row.append(shorten(content.replace('\n', ' '), INCIDENT_CONTENT_WIDTH))
-        rendered_rows.append(row)
-
-    table.add_rows(rendered_rows)
-    return table.render()
 
 
 class HoneypotIncidentPageSource(menus.PageSource):
@@ -252,10 +222,8 @@ class HoneypotIncidentPageSource(menus.PageSource):
             lines.append('No honeypot incidents found.')
             return '\n'.join(lines)
 
-        table = format_incident_table(
-            page.rows,
-            start_index=(page.page_number * self.per_page) + 1,
-            include_user=self.include_user,
+        table = self.format_incident_table(
+            page.rows, start_index=(page.page_number * self.per_page) + 1
         )
         lines.append(f'```\n{table}\n```')
 
@@ -267,6 +235,47 @@ class HoneypotIncidentPageSource(menus.PageSource):
             )
 
         return '\n'.join(lines)
+
+    def format_incident_table(
+        self,
+        rows: Iterable[HoneypotIncident],
+        *,
+        start_index: int,
+    ) -> str:
+        """Render incident rows as a compact text table."""
+
+        table = formats.TabularData()
+
+        # Add columns
+        columns = ['#', 'Triggered', 'Action', 'Success', 'Count']
+        if self.include_user:
+            columns.append('User')
+        columns.append('Content')
+        table.set_columns(columns)
+
+        # Add rows
+        rendered_rows: list[list[str]] = []
+        for index, incident in enumerate(rows, start=start_index):
+            triggered_at = normalize_datetime(incident.triggered_at)
+            triggered = triggered_at.strftime('%Y-%m-%d %H:%M')
+            content = incident.content_excerpt or ''
+            row = [
+                str(index),
+                triggered,
+                incident.punishment_action,
+                'yes' if incident.punishment_succeeded else 'no',
+                str(incident.trigger_count),
+            ]
+
+            if self.include_user:
+                row.append(str(incident.user_id))
+
+            row.append(shorten(content.replace('\n', ' '), INCIDENT_CONTENT_WIDTH))
+            rendered_rows.append(row)
+
+        # Render table
+        table.add_rows(rendered_rows)
+        return table.render()
 
 
 async def send_incident_paginator(
@@ -576,10 +585,12 @@ class Honeypot(commands.Cog):
 
         existing_user_ids = {member.id for member in ctx.guild.members}
         rejoined = users.intersection(existing_user_ids)
+        guild_members = ctx.guild.member_count or len(ctx.guild.members)
 
         await ctx.reply(
             embed=HoneypotStatsEmbed(
                 ctx.guild,
+                guild_members=guild_members,
                 total_incidents=total_incidents,
                 unique_cases=len(users),
                 rejoined=len(rejoined),
