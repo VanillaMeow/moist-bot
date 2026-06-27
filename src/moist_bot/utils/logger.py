@@ -156,7 +156,6 @@ def setup_logging() -> Generator[None, Any]:
     )
     listener_started = False
 
-    # ruff: noqa: PLW0717
     try:
         # __enter__
         # Clear root handlers
