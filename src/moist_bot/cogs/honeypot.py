@@ -94,6 +94,48 @@ class HoneypotAlertEmbed(discord.Embed):
         )
 
 
+class HoneypotStatsEmbed(discord.Embed):
+    """Summary of honeypot incident and rejoin counts."""
+
+    def __init__(
+        self,
+        guild: discord.Guild,
+        *,
+        total_incidents: int,
+        unique_cases: int,
+        rejoined: int,
+    ) -> None:
+        super().__init__(
+            title='Honeypot Stats',
+            description='Current incident history and member-cache rejoin status.',
+            colour=discord.Colour.gold(),
+        )
+        percent_rejoined = rejoined / unique_cases if unique_cases else 0
+
+        self.set_author(
+            name=guild.name,
+            icon_url=guild.icon.url if guild.icon else None,
+        )
+        self.add_field(
+            name='Unique cases',
+            value=f'{unique_cases:,}',
+        )
+        self.add_field(
+            name='Rejoined',
+            value=f'{rejoined:,}',
+        )
+        self.add_field(
+            name='Percent rejoined',
+            value=f'{percent_rejoined:.2%}',
+        )
+        self.add_field(
+            name='Total incidents',
+            value=f'{total_incidents:,}',
+            inline=False,
+        )
+        self.set_footer(text='Rejoined is based on the current guild member cache.')
+
+
 @dataclass(frozen=True, slots=True)
 class HoneypotIncidentPage:
     """One lazily loaded page of honeypot incidents."""
@@ -522,6 +564,27 @@ class Honeypot(commands.Cog):
             f'Logs: <#{config.log_channel_id}>\n'
             f'Alert: {alert}\n'
             f'Total incidents: `{count}`'
+        )
+
+    @honeypot.command(name='stats', aliases=['rejoin', 'rejoins', 'rejoined'])
+    @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
+    async def honeypot_stats(self, ctx: GuildContext) -> None:
+        """Show this server's honeypot incident and rejoin stats."""
+
+        honeypot = self.bot.honeypot
+        users = honeypot.incident_user_ids_for_guild(guild_id=ctx.guild.id)
+        total_incidents = honeypot.incident_count_for_guild(guild_id=ctx.guild.id)
+
+        existing_user_ids = {member.id for member in ctx.guild.members}
+        rejoined = users.intersection(existing_user_ids)
+
+        await ctx.reply(
+            embed=HoneypotStatsEmbed(
+                ctx.guild,
+                total_incidents=total_incidents,
+                unique_cases=len(users),
+                rejoined=len(rejoined),
+            )
         )
 
     @honeypot.command(name='scan')

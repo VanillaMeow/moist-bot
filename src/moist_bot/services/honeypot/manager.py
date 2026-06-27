@@ -111,6 +111,17 @@ class HoneypotManager:
         """Return the total number of honeypot incidents for a guild."""
         return self._incident_counts[guild_id]
 
+    def incident_user_ids_for_guild(self, *, guild_id: int) -> frozenset[int]:
+        """Return user IDs with honeypot incidents for a guild."""
+        return frozenset(
+            user_id
+            for (
+                incident_guild_id,
+                user_id,
+            ), count in self._user_incident_counts.items()
+            if incident_guild_id == guild_id and count > 0
+        )
+
     async def set_config(
         self,
         *,
