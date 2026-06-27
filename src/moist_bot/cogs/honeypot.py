@@ -154,7 +154,7 @@ def format_incident_table(
 
     table = formats.TabularData()
 
-    columns = ['#', 'Triggered', 'Action', 'Success', 'Del Sec', 'Count']
+    columns = ['#', 'Triggered', 'Action', 'Success', 'Count']
     if include_user:
         columns.append('User')
     columns.append('Content')
@@ -170,7 +170,6 @@ def format_incident_table(
             triggered,
             incident.punishment_action,
             'yes' if incident.punishment_succeeded else 'no',
-            str(incident.delete_message_seconds),
             str(incident.trigger_count),
         ]
         if include_user:
