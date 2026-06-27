@@ -13,13 +13,9 @@ if TYPE_CHECKING:
 
 
 class AvatarEmbed(discord.Embed):
-    def __init__(
-        self,
-        user: discord.User,
-    ):
+    def __init__(self, user: discord.User):
         super().__init__(
-            type='image',
-            color=user.accent_color or discord.Color.random(),
+            type='image', color=user.accent_color or discord.Color.random()
         )
         self.set_image(url='attachment://image.png')
         self.set_author(
@@ -44,6 +40,8 @@ def create_low_quality_avatar_buffer(img_bytes: bytes, lq_f: float = 1) -> io.By
 
 
 class LowQualityProfilePicture(commands.Cog):
+    """Display a low quality version of a user's avatar."""
+
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
 
