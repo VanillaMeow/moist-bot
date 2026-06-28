@@ -24,6 +24,7 @@ FLEABOT_EXTENSIONS: Final = (
     'owner',
     'stats',
     'purge',
+    'meow',
     'meta',
     'jsk',
 )
