@@ -118,25 +118,20 @@ class HoneypotStatsEmbed(discord.Embed):
         self.set_author(
             name=guild.name,
             icon_url=guild.icon.url if guild.icon else None,
-        )
-        self.add_field(
+        ).add_field(
             name='Total Incidents',
             value=f'{total_incidents:,}',
             inline=False,
-        )
-        self.add_field(
+        ).add_field(
             name='Unique Members',
             value=f'{unique_cases:,}',
-        )
-        self.add_field(
+        ).add_field(
             name='Rejoined Members',
             value=f'{rejoined:,}',
-        )
-        self.add_field(
+        ).add_field(
             name='% Rejoined',
             value=f'{percent_rejoined:.2%}',
-        )
-        self.add_field(
+        ).add_field(
             name='% Triggered',
             value=f'{percent_triggered:.2%} of {guild_members:,} total guild members',
             inline=False,
@@ -276,29 +271,6 @@ class HoneypotIncidentPageSource(menus.PageSource):
         # Render table
         table.add_rows(rendered_rows)
         return table.render()
-
-
-async def send_incident_paginator(
-    ctx: GuildContext,
-    bot: MoistBot,
-    *,
-    title: str,
-    criteria: Iterable[ColumnElement[bool]],
-    include_user: bool,
-    per_page: int,
-) -> None:
-    """Create and send a lazy incident paginator."""
-
-    source = HoneypotIncidentPageSource(
-        bot,
-        title=title,
-        criteria=criteria,
-        include_user=include_user,
-        per_page=per_page,
-    )
-    await source._prepare_once()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-    pages = RoboPages(source, ctx=ctx, check_embeds=False)
-    await pages.start()
 
 
 async def edit_honeypot_alert_message(
@@ -498,10 +470,18 @@ class Honeypot(commands.Cog):
             if not can_continue:
                 return
 
-        message = await send_honeypot_alert_message(ctx, channel)
-        if message is None:
+
+        # Send the alert message
+        try:
+            message = await channel.send(
+                content=HONEYPOT_ALERT_CONTENT,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException:
+            await ctx.reply(':warning: I cannot send messages in the honeypot channel.')
             return
 
+        # Update the config
         await self.bot.honeypot.set_alert_message_id(
             guild_id=ctx.guild.id,
             alert_message_id=message.id,
@@ -660,14 +640,16 @@ class Honeypot(commands.Cog):
             title = f'Honeypot Incidents for {user}'
             include_user = False
 
-        await send_incident_paginator(
-            ctx,
+        source = HoneypotIncidentPageSource(
             self.bot,
             title=title,
             criteria=criteria,
             include_user=include_user,
             per_page=flags.limit,
         )
+        await source._prepare_once()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        pages = RoboPages(source, ctx=ctx, check_embeds=False)
+        await pages.start()
 
 
 async def setup(bot: MoistBot) -> None:
