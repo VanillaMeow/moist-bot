@@ -19,8 +19,8 @@ else:
 bot_cls = MoistBot
 if settings.use_fleabot:
     from moist_bot.bot_fleabot import FleaBot
-    bot_cls = FleaBot
 
+    bot_cls = FleaBot
 
 
 async def run_bot() -> None:
