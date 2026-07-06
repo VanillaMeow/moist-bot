@@ -1,5 +1,3 @@
-# ruff: noqa: PLR0904
-
 from __future__ import annotations
 
 import logging
@@ -218,21 +216,21 @@ class Purge(commands.Cog):
 
     @purge.command()
     @app_commands.describe(
-        member='The user whose messages to remove',
+        user='The user whose messages to remove',
         limit='Number of messages to search through (1-2000)',
     )
     @commands.cooldown(rate=1, per=10, type=commands.BucketType.guild)
     async def user(
         self,
         ctx: GuildContext,
-        member: discord.Member,
+        user: discord.User,
         limit: int = 100,
         *,
         flags: PurgeFlags,
     ):
         """Remove messages from a specific user."""
         await self._validate_and_purge(
-            ctx, limit, check=lambda m: m.author.id == member.id, flags=flags
+            ctx, limit, check=lambda m: m.author.id == user.id, flags=flags
         )
 
     @purge.command()
@@ -244,7 +242,7 @@ class Purge(commands.Cog):
     async def bots(
         self,
         ctx: GuildContext,
-        bot: discord.Member | None = None,
+        bot: discord.User | None = None,
         limit: int = 100,
         *,
         flags: PurgeFlags,
