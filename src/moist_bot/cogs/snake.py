@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import logging
-import time
 from contextlib import contextmanager
 from datetime import timedelta
 from enum import StrEnum
-from functools import wraps
-from inspect import cleandoc
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 
 import discord
 import discord.utils
@@ -17,7 +14,7 @@ from discord.ext import commands
 from numpy.random import default_rng
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Iterable
+    from collections.abc import Generator, Iterable
 
     from numpy.typing import NDArray
 
@@ -26,51 +23,6 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger('discord.' + __name__)
-
-
-DO_PERF_TIMING: bool = False
-GAME_INTERACTION_LOG = cleandoc(
-    """
-Interaction \x1b[44mtimings\x1b[0m for \x1b[36;1m%s\x1b[0m \x1b[90m(%s)\x1b[0m,
-in guild \x1b[36;1m%s\x1b[0m \x1b[90m(%s)\x1b[0m:
-Interaction start
-|
-|    Frame start
-|    |   Event loop took %sms
-|    |   Render cycle took %sms
-|    Frame latency %sms, %s fps (in theory)
-|
-|    Await discord gateway api call
-|    |
-|    Discord gateway response in %sms
-|
-Full interaction (including overheads) took %sms
-"""
-)
-
-
-def perf_timer[**P](
-    begin_out: str | None = None, end_out: str | None = None
-) -> Callable[[Callable[P, None]], Callable[P, None]]:
-    def inner(func: Callable[P, None]) -> Callable[P, None]:
-        @wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> None:
-            cls = cast('SnakeGameContainer', args[0])
-
-            # Skip
-            if not cls.perf_timing:
-                func(*args, **kwargs)
-                return
-
-            if begin_out:
-                setattr(cls, begin_out, time.perf_counter_ns())
-            func(*args, **kwargs)
-            if end_out:
-                setattr(cls, end_out, time.perf_counter_ns())
-
-        return wrapper
-
-    return inner
 
 
 class SnakeButtonLabel(StrEnum):
@@ -131,10 +83,6 @@ class SnakeGameContainer:
         'free_cell_indexes',
         'free_cells',
         'game_score',
-        'perf_move_snake_begin',
-        'perf_move_snake_end',
-        'perf_render_begin',
-        'perf_render_end',
         'rendered_field',
         'snake_body_len',
         'snake_body_xy',
@@ -150,7 +98,6 @@ class SnakeGameContainer:
     )
     rng = default_rng()
     empty_body = np.array((-1, -1), dtype=np.int8)
-    perf_timing: bool = DO_PERF_TIMING
 
     def __init__(self, size_x: int = 10, size_y: int = 10):
         """Initial game variables"""
@@ -199,12 +146,6 @@ class SnakeGameContainer:
         self.game_score: int = 0
         self.alive: bool = True
         self.won: bool = False
-
-        # Perf timings
-        self.perf_move_snake_begin: int = 0
-        self.perf_move_snake_end: int = 0
-        self.perf_render_begin: int = 0
-        self.perf_render_end: int = 0
 
     def _cell_index(self, cell_xy: NDArray[np.int8]) -> int:
         """Return the flat board index for an `(x, y)` cell."""
@@ -258,15 +199,13 @@ class SnakeGameContainer:
             self.snake_body_len += 1  # I hate how this has to be here
             self.game_score += 1
         else:
-            # If the snake didn't eat an apple
-            # remove the last snake body
+            # If the snake didn't eat an apple remove the last snake body
             self._add_free_cell(self._cell_index(old_tail_xy))
             self.snake_body_xy[self.snake_body_len + 1] = self.empty_body
 
         if self._cell_is_in_bounds(self.snake_head_xy):
             self._remove_free_cell(self._cell_index(self.snake_head_xy))
 
-    @perf_timer('perf_move_snake_begin', 'perf_move_snake_end')
     def move_snake(self, x: int = 0, y: int = 0) -> None:
         """Move the snake, respawn apples and do movement checks.
         This essentially works as the event loop.
@@ -313,11 +252,9 @@ class SnakeGameContainer:
         finally:
             # Reset the field to it's empty form for future render passes
             self.field_yx = self.empty_field_yx.copy()
-            self.perf_render_end = time.perf_counter_ns()
 
     def render(self) -> str:
         """Add game objects and invoke `self._render`"""
-        self.perf_render_begin: int = time.perf_counter_ns()
 
         for body_xy in self.snake_body_xy[: self.snake_body_len]:
             body_yx = body_xy[::-1]
@@ -345,9 +282,6 @@ class SnakeGameContainer:
     def game_win(self) -> None:
         """This is called when the player reaches the max size."""
         # TODO(leah): make event
-        if self.perf_timing:
-            log.info('Win')
-
         self.won = True
         self.game_over()
 
@@ -373,22 +307,7 @@ class SnakeGameView(discord.ui.View):
         self.opposite_button: discord.ui.Button[SnakeGameView] = None  # type: ignore[]
         self.last_opposite_button: discord.ui.Button[SnakeGameView] = None  # type: ignore[]
 
-        # Debug extras
-        self._perf_i_check: int = 0
-        self.perf_await_api_begin: int = 0
-        if self.game_instance.perf_timing:
-            author = self.ctx.author
-            guild = self.ctx.guild
-            log.info(
-                'Interaction \x1b[42;1mstarted\x1b[0m for \x1b[36;1m%s\x1b[0m \x1b[90m(%s)\x1b[0m \n'
-                'in guild \x1b[36;1m%s\x1b[0m \x1b[90m(%s)\x1b[0m!',
-                author,
-                author.id,
-                *(guild.name, guild.id) if guild else ('None', 'DMs'),
-            )
-
     async def interaction_check(self, interaction: discord.Interaction, /) -> bool:
-        self._perf_i_check = time.perf_counter_ns()
         if interaction.user and interaction.user.id == self.ctx.author.id:
             return True
 
@@ -410,25 +329,6 @@ class SnakeGameView(discord.ui.View):
     async def on_timeout(self) -> None:
         await self._on_game_over(':hourglass: Took too long to move!')
 
-    def _perf_log(self):
-        perf_end = time.perf_counter_ns()
-        author = self.ctx.author
-        guild = self.ctx.guild
-        g = self.game_instance
-
-        log.info(
-            GAME_INTERACTION_LOG,
-            author,
-            author.id,
-            *(guild.name, guild.id) if guild else ('None', 'DMs'),
-            (a := g.perf_move_snake_end - g.perf_move_snake_begin) / 1_000_000,
-            (b := g.perf_render_end - g.perf_render_begin) / 1_000_000,
-            (c := a + b) / 1_000_000,
-            round(10**9 / c),
-            (perf_end - self.perf_await_api_begin) / 1_000_000,
-            (perf_end - self._perf_i_check) / 1_000_000,
-        )
-
     async def _on_game_over(self, message: str = ':x: **You died!**') -> None:
         """Function for when the game has ended"""
         self.embed.description = self.game_instance.rendered_field
@@ -440,13 +340,6 @@ class SnakeGameView(discord.ui.View):
             view=None,
         )
         self.stop()
-
-        if self.game_instance.perf_timing:
-            log.info(
-                'Interaction \x1b[41;1mended\x1b[0m for \x1b[36;1m%s\x1b[0m \x1b[90m(%s)\x1b[0m.',
-                self.ctx.author,
-                self.ctx.author.id,
-            )
 
     def _set_opposite_button(self, label: SnakeButtonLabel) -> None:
         """Finds and sets the `discord.ui.Button` object
@@ -547,9 +440,6 @@ class SnakeGameView(discord.ui.View):
         # Move
         self.game_instance.move_snake(**kwargs)
 
-        # Set performance counter pre message edit
-        self.perf_await_api_begin = time.perf_counter_ns()
-
         # Edit original message to the updated game state
         if self.game_instance.alive:
             tm_in = discord.utils.utcnow() + timedelta(seconds=self.game_timeout)
@@ -567,15 +457,13 @@ class SnakeGameView(discord.ui.View):
         else:
             await self._on_game_over()
 
-        # Log perf timings
-        if self.game_instance.perf_timing:
-            self._perf_log()
-
 
 active_snake_games: dict[int, SnakeGameView] = {}
 
 
 class SnakeGame(commands.Cog):
+    """Play a snake game on discord!"""
+
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
 
@@ -638,7 +526,7 @@ the game runs with keyboard controls
 if __name__ == '__main__':
     import sys
 
-    import keyboard  # type: ignore pylint: disable=import-error
+    import keyboard  # type: ignore[]
 
     key_to_direction_map: dict[str, dict[str, int]] = {
         'w': {'y': -1},
