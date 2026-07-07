@@ -23,7 +23,7 @@ LOW_PERMS_MAX_SIZE = 10
 
 WARN_TOO_LONG = ":warning: I can't meow that long >~<"
 WARN_TOO_SHORT = ':warning: Amount must be at least 1.'
-WARN_LOW_PERMS = f':warning: You can only meow up to {LOW_PERMS_MAX_SIZE} words in this channel.'
+WARN_LOW_PERMS = f':warning: You can only meow up to {LOW_PERMS_MAX_SIZE} words in this channel.'  # fmt: skip
 
 
 def maybe(percentage: int) -> bool:
@@ -136,7 +136,7 @@ class Meow(commands.Cog):
         return discord.PartialEmoji(name='\N{CAT FACE}')
 
     @commands.command()
-    @commands.cooldown(rate=1, per=60, type=commands.BucketType.member)
+    @commands.cooldown(rate=1, per=300, type=commands.BucketType.member)
     async def meow(self, ctx: Context, random_size: int | None = None):
         """Generate a random meow."""
 
