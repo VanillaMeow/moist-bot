@@ -311,13 +311,13 @@ class OwnerReload(commands.Cog):
     async def reload_all(self, ctx: Context) -> None:  # noqa: PLR0911
         """Pull from git and reload changed cogs."""
 
-        status_message = await ctx.reply(':mag: Checking for updates...')
+        message = await ctx.reply(':arrow_down: Pulling updates...')
         # Capture the current commit before pulling
         before_status, before_stdout, before_stderr = await run_git(
             'rev-parse', 'HEAD', cwd=PROJECT_ROOT_PATH
         )
         if before_status != 0:
-            await status_message.edit(
+            await message.edit(
                 content=':anger: Unable to read the current git commit.\n'
                 + format_process_error(
                     'git rev-parse HEAD', before_stdout, before_stderr
@@ -325,14 +325,12 @@ class OwnerReload(commands.Cog):
             )
             return
 
-        await status_message.edit(content=':arrow_down: Pulling updates...')
-
         # Keep deploys linear and avoid surprise merge commits
         pull_status, pull_stdout, pull_stderr = await run_git(
             'pull', '--ff-only', cwd=PROJECT_ROOT_PATH
         )
         if pull_status != 0:
-            await status_message.edit(
+            await message.edit(
                 content=':anger: `git pull --ff-only` failed.\n'
                 + format_process_error('git pull --ff-only', pull_stdout, pull_stderr)
             )
@@ -343,7 +341,7 @@ class OwnerReload(commands.Cog):
             'rev-parse', 'HEAD', cwd=PROJECT_ROOT_PATH
         )
         if after_status != 0:
-            await status_message.edit(
+            await message.edit(
                 content=':anger: Unable to read the updated git commit.\n'
                 + format_process_error('git rev-parse HEAD', after_stdout, after_stderr)
             )
@@ -353,7 +351,7 @@ class OwnerReload(commands.Cog):
         after_sha = after_stdout.strip()
         if before_sha == after_sha:
             output = pull_stdout.strip() or pull_stderr.strip() or 'Already up to date.'
-            await status_message.edit(content=f':white_check_mark: {output}')
+            await message.edit(content=f':white_check_mark: {output}')
             return
 
         remote_status, remote_stdout, _ = await run_git(
@@ -375,9 +373,9 @@ class OwnerReload(commands.Cog):
             cwd=PROJECT_ROOT_PATH,
         )
         commit_text = self.format_commit_list(log_stdout if log_status == 0 else '')
-        update_text = f'`{before_sha[:7]}` → `{after_sha[:7]}`'
+        update_text = f'`{before_sha[:7]}...{after_sha[:7]}`'
         if compare_url is not None:
-            update_text += f' ([view diff](<{compare_url}>))'
+            update_text = f'[{before_sha[:7]}...{after_sha[:7]}](<{compare_url}>)'
 
         # Limit reload decisions to files changed by this pull
         diff_status, diff_stdout, diff_stderr = await run_git(
@@ -387,7 +385,7 @@ class OwnerReload(commands.Cog):
             cwd=PROJECT_ROOT_PATH,
         )
         if diff_status != 0:
-            await status_message.edit(
+            await message.edit(
                 content=':anger: Unable to inspect the updated files.\n'
                 + format_process_error(
                     f'git diff --name-only {before_sha}..{after_sha}',
@@ -405,7 +403,7 @@ class OwnerReload(commands.Cog):
 
         # Update the virtual environment when dependency metadata changed
         if self.needs_uv_sync(changed_files):
-            await status_message.edit(
+            await message.edit(
                 content=f':package: Updating dependencies for {update_text}...\n\n'
                 f'**Commits**\n{commit_text}'
             )
@@ -414,14 +412,14 @@ class OwnerReload(commands.Cog):
             )
             if status != 0:
                 command_text = ' '.join(UV_COMMAND)
-                await status_message.edit(
+                await message.edit(
                     content=f':anger: `{command_text}` failed after pulling updates.\n'
                     + format_process_error(command_text, stdout, stderr)
                 )
                 return
 
         if self.needs_alembic_upgrade(changed_files):
-            await status_message.edit(
+            await message.edit(
                 content=f':card_box: Applying migrations for {update_text}...\n\n'
                 f'**Commits**\n{commit_text}'
             )
@@ -430,7 +428,7 @@ class OwnerReload(commands.Cog):
             )
             if status != 0:
                 command_text = ' '.join(ALEMBIC_COMMAND)
-                await status_message.edit(
+                await message.edit(
                     content=f':anger: `{command_text}` failed after pulling updates.\n'
                     + format_process_error(command_text, stdout, stderr)
                 )
@@ -446,7 +444,7 @@ class OwnerReload(commands.Cog):
             )
             if restart_required:
                 content += '\nUse `restart` for these changes to fully take effect.'
-            await status_message.edit(content=content)
+            await message.edit(content=content)
             return
 
         loaded_targets: list[ReloadTarget] = []
@@ -474,7 +472,7 @@ class OwnerReload(commands.Cog):
                 content += f'\n\n**Skipped unloaded modules**\n{skipped_text}'
             if restart_required:
                 content += '\nUse `restart` for these changes to fully take effect.'
-            await status_message.edit(content=content)
+            await message.edit(content=content)
             return
 
         modules_text = '\n'.join(
@@ -501,19 +499,19 @@ class OwnerReload(commands.Cog):
         confirmation = ConfirmationView(
             timeout=60.0, delete_after=False, author_id=ctx.author.id
         )
-        confirmation.message = status_message
-        await status_message.edit(content=prompt_text, view=confirmation)
+        confirmation.message = message
+        await message.edit(content=prompt_text, view=confirmation)
         await confirmation.wait()
         confirm = confirmation.value
         if not confirm:
             result = 'Reload cancelled.' if confirm is False else 'Reload timed out.'
-            await status_message.edit(
+            await message.edit(
                 content=f':x: {result}\n\nPulled {update_text}.\n\n**Commits**\n{commit_text}',
                 view=None,
             )
             return
 
-        await status_message.edit(
+        await message.edit(
             content=f':arrows_counterclockwise: Reloading modules for {update_text}...',
             view=None,
         )
@@ -539,7 +537,7 @@ class OwnerReload(commands.Cog):
         if restart_required:
             content += '\n\n:warning: Use `restart` to apply non-cog changes.'
 
-        await status_message.edit(content=content)
+        await message.edit(content=content)
 
     @commands.command(hidden=True)
     async def load(self, ctx: Context, ext: str):
