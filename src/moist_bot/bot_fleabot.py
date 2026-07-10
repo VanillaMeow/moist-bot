@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 
 FLEABOT_EXTENSIONS: Final = (
+    'owner_reload',
     'errorhandle',
     'owner_debug',
     'blocklist',

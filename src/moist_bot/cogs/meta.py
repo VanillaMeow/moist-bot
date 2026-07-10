@@ -5,17 +5,24 @@ from __future__ import annotations
 import asyncio
 import inspect
 import itertools
+import sys
 import unicodedata
-from typing import TYPE_CHECKING, Any
+from importlib.metadata import distribution, packages_distributions
+from typing import TYPE_CHECKING, Any, cast
 
 import discord
+import psutil
 from discord.ext import commands, menus
+from jishaku.modules import package_version
 
+from moist_bot.constants import PROJECT_ROOT_PATH
 from moist_bot.utils.checks import has_guild_permissions_or_dm
 from moist_bot.utils.paginator import RoboPages
+from moist_bot.utils.process import run_git
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
+    from moist_bot.cogs.stats import Stats
     from moist_bot.utils.context import Context
 
 
@@ -329,6 +336,7 @@ class Meta(commands.Cog):
         self.old_help_command: commands.HelpCommand | None = bot.help_command
         bot.help_command = PaginatedHelpCommand()
         bot.help_command.cog = self
+        self.process = psutil.Process()
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -362,61 +370,143 @@ class Meta(commands.Cog):
             return await ctx.reply('Output too long to display.')
         await ctx.reply(msg)
 
-    @commands.command(name='quit', hidden=True)
-    @commands.is_owner()
-    async def _quit(self, _ctx: Context):
-        """Quits the bot."""
-        await self.bot.close()
+    @commands.command(name='health', aliases=['about'])
+    async def _bot_stats(self, ctx: Context):
+        """Various bot stat monitoring tools."""
 
-    @staticmethod
-    async def say_permissions(
-        ctx: Context,
-        member: discord.Member,
-        channel: discord.abc.GuildChannel | discord.Thread,
-    ) -> None:
-        permissions = channel.permissions_for(member)
-        e = discord.Embed(colour=member.colour)
-        avatar = member.display_avatar.with_static_format('png')
-        e.set_author(name=str(member), url=avatar)
-        allowed: list[str] = []
-        denied: list[str] = []
-        for name, value in permissions:
-            perm_name = name.replace('_', ' ').replace('guild', 'server').title()
-            if value:
-                allowed.append(perm_name)
-            else:
-                denied.append(perm_name)
+        HEALTHY = discord.Color(value=0x43B581)  # noqa: N806
+        UNHEALTHY = discord.Color(value=0xF04947)  # noqa: N806
+        # WARNING = discord.Color(value=0xF09E47)
 
-        e.add_field(name='Allowed', value='\n'.join(allowed))
-        e.add_field(name='Denied', value='\n'.join(denied))
-        await ctx.reply(embed=e)
+        # Process stats
+        process = self.process
+        with process.oneshot():
+            cpu_count = psutil.cpu_count() or 1
+            cpu_usage = process.cpu_percent() / cpu_count
+            thread_count = process.num_threads()
+            memory = process.memory_full_info()
+            system_memory = psutil.virtual_memory()
 
-    @commands.command()
-    @commands.is_owner()
-    async def debugpermissions(
-        self, ctx: Context, guild_id: int, channel_id: int, author_id: int | None = None
-    ):
-        """Shows permission resolution for a channel and an optional author."""
+            physical_memory = memory.rss / 1024**2
+            unique_memory = memory.uss / 1024**2
+            free_memory = system_memory.available / 1024**2
 
-        guild = self.bot.get_guild(guild_id)
-        if guild is None:
-            return await ctx.reply('Guild not found?')
-
-        channel = guild.get_channel(channel_id)
-        if channel is None:
-            return await ctx.reply('Channel not found?')
-
-        if author_id is None:
-            member = guild.me
+        # Message cache stats
+        if self.bot._connection.max_messages:  # noqa: SLF001
+            message_cache = (
+                f'{len(self.bot.cached_messages)}/{self.bot._connection.max_messages}'  # noqa: SLF001
+            )
         else:
-            member = await guild.fetch_member(author_id)
+            message_cache = 'Disabled'
 
-        if member is None:  # pyright: ignore[reportUnnecessaryComparison]
-            return await ctx.reply('Member not found?')
+        # Tasks stats
+        all_tasks = asyncio.all_tasks(loop=self.bot.loop)
+        event_tasks = [
+            t for t in all_tasks if 'Client._run_event' in repr(t) and not t.done()
+        ]
 
-        await self.say_permissions(ctx, member, channel)
+        future_tasks = [t for t in event_tasks if 'Future pending' in repr(t)]
+
+        # # Distribution stats
+        # Try to locate what vends the `discord` package
+        distributions: list[str] = [
+            dist
+            for dist in packages_distributions()['discord']  # type: ignore[]
+            if any(
+                file.parts == ('discord', '__init__.py')  # type: ignore[]
+                for file in distribution(dist).files  # type: ignore[]
+            )
+        ]
+
+        if distributions:
+            dist_version = f'{distributions[0]}: v{package_version(distributions[0])}'
+        else:
+            dist_version = f'unknown: v{discord.__version__}'
+
+        commit_status, commit_stdout, _ = await run_git(
+            'rev-parse', '--short', 'HEAD', cwd=PROJECT_ROOT_PATH
+        )
+        current_commit = commit_stdout.strip() if commit_status == 0 else 'unknown'
+
+        python_version, _, _ = sys.version.partition('(')
+
+        stats_cog = self.bot.get_cog('Stats')
+        commands_run = 0
+        socket_events = 0
+        total_socket_events = 0
+        if stats_cog is not None:
+            stats = cast('Stats', stats_cog)
+            commands_run = sum(stats.command_stats.values())
+            socket_events = sum(stats.socket_stats.values())
+            total_socket_events = stats.total_socket_events
+
+        embed = (
+            discord.Embed(
+                title='Bot Stats Report',
+                color=HEALTHY,
+                timestamp=discord.utils.utcnow(),
+            )
+            .add_field(
+                name='Process',
+                value=f'{cpu_usage:.2f}% CPU\n'
+                f'CPU Threads: {cpu_count}\n'
+                f'Process Threads: {thread_count}\n',
+                inline=True,
+            )
+            .add_field(
+                name='Memory',
+                value=f'Physical: {physical_memory:.2f} MiB\n'
+                f'Unique: {unique_memory:.2f} MiB\n'
+                f'Free: {free_memory:.2f} MiB',
+                inline=True,
+            )
+            .add_field(
+                name='Cache',
+                value=f'Guilds: {len(self.bot.guilds)}\n'
+                f'Users: {len(self.bot.users)}\n'
+                f'Messages: {message_cache}',
+                inline=True,
+            )
+            .add_field(
+                name='Events Waiting',
+                value=f'Total: {len(event_tasks)}\nFuture task: {len(future_tasks)}',
+                inline=True,
+            )
+            .add_field(
+                name='Session Counters',
+                value=f'Commands run: {commands_run!s}\n'
+                f'Socket events: {socket_events!s}\n'
+                f'Total socket events: {total_socket_events!s}',
+                inline=True,
+            )
+            .add_field(
+                name='Distribution',
+                value=f'Commit: `{current_commit}`\n'
+                f'{dist_version}\n'
+                f'Jishaku: v{package_version("jishaku")}\n'
+                f'Python: v{python_version}\n'
+                f'Platform: {sys.platform}',
+                inline=False,
+            )
+            .set_footer(text='Made with ❤️ by Leah 🌸')
+        )
+
+        description: list[str] = []
+
+        started_at = discord.utils.format_dt(self.bot.started_at, 'R')
+        description.append(f'Started: {started_at}')
+
+        global_rate_limit = not self.bot.http._global_over.is_set()  # noqa: SLF001
+        description.append(f'Global Rate Limit: {global_rate_limit}')
+
+        if global_rate_limit:
+            embed.color = UNHEALTHY
+
+        embed.description = '\n'.join(description)
+        await ctx.reply(embed=embed)
 
     @commands.command(hidden=True)
+    @has_guild_permissions_or_dm(manage_messages=True)
     @commands.cooldown(1, 30.0, type=commands.BucketType.member)
     async def cud(self, ctx: Context):
         """pls no spam"""
