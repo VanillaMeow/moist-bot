@@ -312,138 +312,129 @@ class OwnerReload(commands.Cog):
         """Pull from git and reload changed cogs."""
 
         status_message = await ctx.reply(':mag: Checking for updates...')
-        async with ctx.typing():
-            # Capture the current commit before pulling
-            before_status, before_stdout, before_stderr = await run_git(
-                'rev-parse', 'HEAD', cwd=PROJECT_ROOT_PATH
+        # Capture the current commit before pulling
+        before_status, before_stdout, before_stderr = await run_git(
+            'rev-parse', 'HEAD', cwd=PROJECT_ROOT_PATH
+        )
+        if before_status != 0:
+            await status_message.edit(
+                content=':anger: Unable to read the current git commit.\n'
+                + format_process_error(
+                    'git rev-parse HEAD', before_stdout, before_stderr
+                )
             )
-            if before_status != 0:
+            return
+
+        await status_message.edit(content=':arrow_down: Pulling updates...')
+
+        # Keep deploys linear and avoid surprise merge commits
+        pull_status, pull_stdout, pull_stderr = await run_git(
+            'pull', '--ff-only', cwd=PROJECT_ROOT_PATH
+        )
+        if pull_status != 0:
+            await status_message.edit(
+                content=':anger: `git pull --ff-only` failed.\n'
+                + format_process_error('git pull --ff-only', pull_stdout, pull_stderr)
+            )
+            return
+
+        # Compare the new commit to the previous one
+        after_status, after_stdout, after_stderr = await run_git(
+            'rev-parse', 'HEAD', cwd=PROJECT_ROOT_PATH
+        )
+        if after_status != 0:
+            await status_message.edit(
+                content=':anger: Unable to read the updated git commit.\n'
+                + format_process_error('git rev-parse HEAD', after_stdout, after_stderr)
+            )
+            return
+
+        before_sha = before_stdout.strip()
+        after_sha = after_stdout.strip()
+        if before_sha == after_sha:
+            output = pull_stdout.strip() or pull_stderr.strip() or 'Already up to date.'
+            await status_message.edit(content=f':white_check_mark: {output}')
+            return
+
+        remote_status, remote_stdout, _ = await run_git(
+            'remote', 'get-url', 'origin', cwd=PROJECT_ROOT_PATH
+        )
+        repository_url = (
+            self.github_repository_url(remote_stdout) if remote_status == 0 else None
+        )
+        compare_url = (
+            f'{repository_url}/compare/{before_sha}...{after_sha}'
+            if repository_url is not None
+            else None
+        )
+
+        log_status, log_stdout, _ = await run_git(
+            'log',
+            '--format=%h%x09%s',
+            f'{before_sha}..{after_sha}',
+            cwd=PROJECT_ROOT_PATH,
+        )
+        commit_text = self.format_commit_list(log_stdout if log_status == 0 else '')
+        update_text = f'`{before_sha[:7]}` → `{after_sha[:7]}`'
+        if compare_url is not None:
+            update_text += f' ([view diff](<{compare_url}>))'
+
+        # Limit reload decisions to files changed by this pull
+        diff_status, diff_stdout, diff_stderr = await run_git(
+            'diff',
+            '--name-only',
+            f'{before_sha}..{after_sha}',
+            cwd=PROJECT_ROOT_PATH,
+        )
+        if diff_status != 0:
+            await status_message.edit(
+                content=':anger: Unable to inspect the updated files.\n'
+                + format_process_error(
+                    f'git diff --name-only {before_sha}..{after_sha}',
+                    diff_stdout,
+                    diff_stderr,
+                )
+            )
+            return
+
+        changed_files = [
+            Path(file) for file in diff_stdout.splitlines() if file.strip()
+        ]
+        targets = self.find_reload_targets(changed_files)
+        restart_required = self.needs_restart(changed_files)
+
+        # Update the virtual environment when dependency metadata changed
+        if self.needs_uv_sync(changed_files):
+            await status_message.edit(
+                content=f':package: Updating dependencies for {update_text}...\n\n'
+                f'**Commits**\n{commit_text}'
+            )
+            status, stdout, stderr = await run_process(
+                *UV_COMMAND, cwd=PROJECT_ROOT_PATH
+            )
+            if status != 0:
+                command_text = ' '.join(UV_COMMAND)
                 await status_message.edit(
-                    content=':anger: Unable to read the current git commit.\n'
-                    + format_process_error(
-                        'git rev-parse HEAD', before_stdout, before_stderr
-                    )
+                    content=f':anger: `{command_text}` failed after pulling updates.\n'
+                    + format_process_error(command_text, stdout, stderr)
                 )
                 return
 
-            await status_message.edit(content=':arrow_down: Pulling updates...')
-
-            # Keep deploys linear and avoid surprise merge commits
-            pull_status, pull_stdout, pull_stderr = await run_git(
-                'pull', '--ff-only', cwd=PROJECT_ROOT_PATH
+        if self.needs_alembic_upgrade(changed_files):
+            await status_message.edit(
+                content=f':card_box: Applying migrations for {update_text}...\n\n'
+                f'**Commits**\n{commit_text}'
             )
-            if pull_status != 0:
+            status, stdout, stderr = await run_process(
+                *ALEMBIC_COMMAND, cwd=PROJECT_ROOT_PATH
+            )
+            if status != 0:
+                command_text = ' '.join(ALEMBIC_COMMAND)
                 await status_message.edit(
-                    content=':anger: `git pull --ff-only` failed.\n'
-                    + format_process_error(
-                        'git pull --ff-only', pull_stdout, pull_stderr
-                    )
+                    content=f':anger: `{command_text}` failed after pulling updates.\n'
+                    + format_process_error(command_text, stdout, stderr)
                 )
                 return
-
-            # Compare the new commit to the previous one
-            after_status, after_stdout, after_stderr = await run_git(
-                'rev-parse', 'HEAD', cwd=PROJECT_ROOT_PATH
-            )
-            if after_status != 0:
-                await status_message.edit(
-                    content=':anger: Unable to read the updated git commit.\n'
-                    + format_process_error(
-                        'git rev-parse HEAD', after_stdout, after_stderr
-                    )
-                )
-                return
-
-            before_sha = before_stdout.strip()
-            after_sha = after_stdout.strip()
-            if before_sha == after_sha:
-                output = (
-                    pull_stdout.strip() or pull_stderr.strip() or 'Already up to date.'
-                )
-                await status_message.edit(content=f':white_check_mark: {output}')
-                return
-
-            remote_status, remote_stdout, _ = await run_git(
-                'remote', 'get-url', 'origin', cwd=PROJECT_ROOT_PATH
-            )
-            repository_url = (
-                self.github_repository_url(remote_stdout)
-                if remote_status == 0
-                else None
-            )
-            compare_url = (
-                f'{repository_url}/compare/{before_sha}...{after_sha}'
-                if repository_url is not None
-                else None
-            )
-
-            log_status, log_stdout, _ = await run_git(
-                'log',
-                '--format=%h%x09%s',
-                f'{before_sha}..{after_sha}',
-                cwd=PROJECT_ROOT_PATH,
-            )
-            commit_text = self.format_commit_list(log_stdout if log_status == 0 else '')
-            update_text = f'`{before_sha[:7]}` → `{after_sha[:7]}`'
-            if compare_url is not None:
-                update_text += f' ([view diff](<{compare_url}>))'
-
-            # Limit reload decisions to files changed by this pull
-            diff_status, diff_stdout, diff_stderr = await run_git(
-                'diff',
-                '--name-only',
-                f'{before_sha}..{after_sha}',
-                cwd=PROJECT_ROOT_PATH,
-            )
-            if diff_status != 0:
-                await status_message.edit(
-                    content=':anger: Unable to inspect the updated files.\n'
-                    + format_process_error(
-                        f'git diff --name-only {before_sha}..{after_sha}',
-                        diff_stdout,
-                        diff_stderr,
-                    )
-                )
-                return
-
-            changed_files = [
-                Path(file) for file in diff_stdout.splitlines() if file.strip()
-            ]
-            targets = self.find_reload_targets(changed_files)
-            restart_required = self.needs_restart(changed_files)
-
-            # Update the virtual environment when dependency metadata changed
-            if self.needs_uv_sync(changed_files):
-                await status_message.edit(
-                    content=f':package: Updating dependencies for {update_text}...\n\n'
-                    f'**Commits**\n{commit_text}'
-                )
-                status, stdout, stderr = await run_process(
-                    *UV_COMMAND, cwd=PROJECT_ROOT_PATH
-                )
-                if status != 0:
-                    command_text = ' '.join(UV_COMMAND)
-                    await status_message.edit(
-                        content=f':anger: `{command_text}` failed after pulling updates.\n'
-                        + format_process_error(command_text, stdout, stderr)
-                    )
-                    return
-
-            if self.needs_alembic_upgrade(changed_files):
-                await status_message.edit(
-                    content=f':card_box: Applying migrations for {update_text}...\n\n'
-                    f'**Commits**\n{commit_text}'
-                )
-                status, stdout, stderr = await run_process(
-                    *ALEMBIC_COMMAND, cwd=PROJECT_ROOT_PATH
-                )
-                if status != 0:
-                    command_text = ' '.join(ALEMBIC_COMMAND)
-                    await status_message.edit(
-                        content=f':anger: `{command_text}` failed after pulling updates.\n'
-                        + format_process_error(command_text, stdout, stderr)
-                    )
-                    return
 
         changed_text = format_file_list(changed_files, limit=650)
         if not targets:
