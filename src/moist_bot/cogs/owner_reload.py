@@ -511,11 +511,6 @@ class OwnerReload(commands.Cog):
             )
             return
 
-        await message.edit(
-            content=f':arrows_counterclockwise: Reloading modules for {update_text}...',
-            view=None,
-        )
-
         # Reload deeper helper modules before top-level cog extensions
         statuses: list[tuple[str, str]] = []
         for target in loaded_targets:
@@ -537,7 +532,7 @@ class OwnerReload(commands.Cog):
         if restart_required:
             content += '\n\n:warning: Use `restart` to apply non-cog changes.'
 
-        await message.edit(content=content)
+        await message.edit(content=content, view=None)
 
     @commands.command(hidden=True)
     async def load(self, ctx: Context, ext: str):
