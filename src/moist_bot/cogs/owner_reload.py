@@ -6,7 +6,7 @@ import importlib
 import logging
 import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 import discord
 from anyio import Path
@@ -37,10 +37,10 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 
-UV_COMMAND: Final = ('uv', 'sync', '--locked')
-ALEMBIC_COMMAND: Final = ('uv', 'run', 'alembic', 'upgrade', 'head')
-COMMIT_LIST_LIMIT: Final = 10
-COMMIT_TEXT_LIMIT: Final = 700
+UV_COMMAND = ('uv', 'sync', '--locked')
+ALEMBIC_COMMAND = ('uv', 'run', 'alembic', 'upgrade', 'head')
+COMMIT_LIST_LIMIT = 10
+COMMIT_TEXT_LIMIT = 700
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +51,148 @@ class ReloadTarget:
     display_name: str
     depth: int
     is_extension: bool
+
+
+def module_name_from_project_path(file: Path) -> str | None:
+    """Convert a project-relative Python path into an import path.
+
+    Parameters
+    ----------
+    file:
+        A project-relative file path from git.
+
+    Returns
+    -------
+    str | None
+        The import path for Python files under ``src``.
+    """
+
+    if file.suffix != '.py':
+        return None
+
+    try:
+        source_path = file.relative_to('src')
+    except ValueError:
+        return None
+
+    if source_path.name == '__init__.py':
+        source_path = source_path.parent
+    else:
+        source_path = source_path.with_suffix('')
+
+    if not source_path.parts:
+        return None
+
+    return '.'.join(source_path.parts)
+
+
+def needs_restart(changed_files: list[Path]) -> bool:
+    """Return whether changed files require a full process restart.
+
+    Parameters
+    ----------
+    changed_files:
+        Project-relative paths changed by the update.
+
+    Returns
+    -------
+    bool
+        Whether a process restart is needed for the changes to apply.
+    """
+
+    for file in changed_files:
+        if file in DEPENDENCY_FILES:
+            return True
+
+        if (
+            file.is_relative_to(ROOT_PACKAGE_PROJECT_PATH)
+            and file.suffix == '.py'
+            and not file.is_relative_to(COGS_PROJECT_PATH)
+        ):
+            return True
+
+    return False
+
+
+def needs_uv_sync(changed_files: list[Path]) -> bool:
+    """Return whether dependency files changed during the pull.
+
+    Parameters
+    ----------
+    changed_files:
+        Project-relative paths changed by the update.
+
+    Returns
+    -------
+    bool
+        Whether ``uv sync --locked`` should be run.
+    """
+
+    return any(file in DEPENDENCY_FILES for file in changed_files)
+
+
+def needs_alembic_upgrade(changed_files: list[Path]) -> bool:
+    """Return whether database migrations changed during the pull.
+
+    Parameters
+    ----------
+    changed_files:
+        Project-relative paths changed by the update.
+
+    Returns
+    -------
+    bool
+        Whether ``uv run alembic upgrade head`` should be run.
+    """
+
+    return any(file.is_relative_to(MIGRATIONS_PROJECT_PATH) for file in changed_files)
+
+
+def github_repository_url(remote_url: str) -> str | None:
+    """Convert a GitHub git remote into its browser repository URL."""
+
+    remote_url = remote_url.strip().removesuffix('.git')
+    if remote_url.startswith('git@github.com:'):
+        repository = remote_url.removeprefix('git@github.com:')
+    elif remote_url.startswith('ssh://git@github.com/'):
+        repository = remote_url.removeprefix('ssh://git@github.com/')
+    elif remote_url.startswith('https://github.com/'):
+        repository = remote_url.removeprefix('https://github.com/')
+    else:
+        return None
+
+    if repository.count('/') != 1:
+        return None
+    return f'https://github.com/{repository}'
+
+
+def format_commit_list(output: str) -> str:
+    """Format git log output as a compact Discord-safe commit list."""
+
+    lines = output.splitlines()
+    commits: list[str] = []
+    current_length = 0
+    for line in lines[:COMMIT_LIST_LIMIT]:
+        short_sha, separator, subject = line.partition('\t')
+        if not separator:
+            continue
+
+        # Make format
+        safe_subject = discord.utils.escape_mentions(
+            discord.utils.escape_markdown(subject)
+        )
+        commit = f'- `{short_sha}` - {safe_subject}'
+        new_length = current_length + len(commit) + 1
+        if new_length > COMMIT_TEXT_LIMIT:
+            break
+
+        commits.append(commit)
+        current_length = new_length
+
+    if len(commits) < len(lines):
+        commits.append(f'- ...and {len(lines) - len(commits)} more commit(s).')
+
+    return '\n'.join(commits) or '- Commit messages unavailable.'
 
 
 class OwnerReload(commands.Cog):
@@ -92,39 +234,6 @@ class OwnerReload(commands.Cog):
         await ctx.reply(f':repeat: Reloaded {ext}.')
         self.last_ext = ext
 
-    @staticmethod
-    def module_name_from_project_path(file: Path) -> str | None:
-        """Convert a project-relative Python path into an import path.
-
-        Parameters
-        ----------
-        file:
-            A project-relative file path from git.
-
-        Returns
-        -------
-        str | None
-            The import path for Python files under ``src``.
-        """
-
-        if file.suffix != '.py':
-            return None
-
-        try:
-            source_path = file.relative_to('src')
-        except ValueError:
-            return None
-
-        if source_path.name == '__init__.py':
-            source_path = source_path.parent
-        else:
-            source_path = source_path.with_suffix('')
-
-        if not source_path.parts:
-            return None
-
-        return '.'.join(source_path.parts)
-
     def find_reload_targets(self, changed_files: list[Path]) -> list[ReloadTarget]:
         """Find changed cog modules that can be reloaded in-process.
 
@@ -143,7 +252,7 @@ class OwnerReload(commands.Cog):
         targets: list[ReloadTarget] = []
 
         for file in changed_files:
-            module = self.module_name_from_project_path(file)
+            module = module_name_from_project_path(file)
             if module is None or not module.startswith(cog_prefix):
                 continue
 
@@ -186,70 +295,6 @@ class OwnerReload(commands.Cog):
 
         return target.module in sys.modules
 
-    @staticmethod
-    def needs_restart(changed_files: list[Path]) -> bool:
-        """Return whether changed files require a full process restart.
-
-        Parameters
-        ----------
-        changed_files:
-            Project-relative paths changed by the update.
-
-        Returns
-        -------
-        bool
-            Whether a process restart is needed for the changes to apply.
-        """
-
-        for file in changed_files:
-            if file in DEPENDENCY_FILES:
-                return True
-
-            if (
-                file.is_relative_to(ROOT_PACKAGE_PROJECT_PATH)
-                and file.suffix == '.py'
-                and not file.is_relative_to(COGS_PROJECT_PATH)
-            ):
-                return True
-
-        return False
-
-    @staticmethod
-    def needs_uv_sync(changed_files: list[Path]) -> bool:
-        """Return whether dependency files changed during the pull.
-
-        Parameters
-        ----------
-        changed_files:
-            Project-relative paths changed by the update.
-
-        Returns
-        -------
-        bool
-            Whether ``uv sync --locked`` should be run.
-        """
-
-        return any(file in DEPENDENCY_FILES for file in changed_files)
-
-    @staticmethod
-    def needs_alembic_upgrade(changed_files: list[Path]) -> bool:
-        """Return whether database migrations changed during the pull.
-
-        Parameters
-        ----------
-        changed_files:
-            Project-relative paths changed by the update.
-
-        Returns
-        -------
-        bool
-            Whether ``uv run alembic upgrade head`` should be run.
-        """
-
-        return any(
-            file.is_relative_to(MIGRATIONS_PROJECT_PATH) for file in changed_files
-        )
-
     async def reload_target(self, target: ReloadTarget) -> None:
         """Reload a changed cog or nested cog helper module.
 
@@ -265,47 +310,6 @@ class OwnerReload(commands.Cog):
 
         module = sys.modules[target.module]
         importlib.reload(module)
-
-    @staticmethod
-    def github_repository_url(remote_url: str) -> str | None:
-        """Convert a GitHub git remote into its browser repository URL."""
-
-        remote_url = remote_url.strip().removesuffix('.git')
-        if remote_url.startswith('git@github.com:'):
-            repository = remote_url.removeprefix('git@github.com:')
-        elif remote_url.startswith('ssh://git@github.com/'):
-            repository = remote_url.removeprefix('ssh://git@github.com/')
-        elif remote_url.startswith('https://github.com/'):
-            repository = remote_url.removeprefix('https://github.com/')
-        else:
-            return None
-
-        if repository.count('/') != 1:
-            return None
-        return f'https://github.com/{repository}'
-
-    @staticmethod
-    def format_commit_list(output: str) -> str:
-        """Format git log output as a compact Discord-safe commit list."""
-
-        lines = output.splitlines()
-        commits: list[str] = []
-        for line in lines[:COMMIT_LIST_LIMIT]:
-            short_sha, separator, subject = line.partition('\t')
-            if not separator:
-                continue
-            safe_subject = discord.utils.escape_mentions(
-                discord.utils.escape_markdown(subject)
-            )
-            commit = f'- `{short_sha}` {safe_subject}'
-            if sum(len(item) + 1 for item in commits) + len(commit) > COMMIT_TEXT_LIMIT:
-                break
-            commits.append(commit)
-
-        if len(commits) < len(lines):
-            commits.append(f'- ...and {len(lines) - len(commits)} more commit(s).')
-
-        return '\n'.join(commits) or '- Commit messages unavailable.'
 
     @reload.command(name='all', hidden=True)
     async def reload_all(self, ctx: Context) -> None:  # noqa: PLR0911
@@ -358,7 +362,7 @@ class OwnerReload(commands.Cog):
             'remote', 'get-url', 'origin', cwd=PROJECT_ROOT_PATH
         )
         repository_url = (
-            self.github_repository_url(remote_stdout) if remote_status == 0 else None
+            github_repository_url(remote_stdout) if remote_status == 0 else None
         )
         compare_url = (
             f'{repository_url}/compare/{before_sha}...{after_sha}'
@@ -372,7 +376,7 @@ class OwnerReload(commands.Cog):
             f'{before_sha}..{after_sha}',
             cwd=PROJECT_ROOT_PATH,
         )
-        commit_text = self.format_commit_list(log_stdout if log_status == 0 else '')
+        commit_text = format_commit_list(log_stdout if log_status == 0 else '')
         update_text = f'`{before_sha[:7]}...{after_sha[:7]}`'
         if compare_url is not None:
             update_text = f'[{before_sha[:7]}...{after_sha[:7]}](<{compare_url}>)'
@@ -399,14 +403,10 @@ class OwnerReload(commands.Cog):
             Path(file) for file in diff_stdout.splitlines() if file.strip()
         ]
         targets = self.find_reload_targets(changed_files)
-        restart_required = self.needs_restart(changed_files)
+        restart_required = needs_restart(changed_files)
 
         # Update the virtual environment when dependency metadata changed
-        if self.needs_uv_sync(changed_files):
-            await message.edit(
-                content=f':package: Updating dependencies for {update_text}...\n\n'
-                f'**Commits**\n{commit_text}'
-            )
+        if needs_uv_sync(changed_files):
             status, stdout, stderr = await run_process(
                 *UV_COMMAND, cwd=PROJECT_ROOT_PATH
             )
@@ -418,11 +418,7 @@ class OwnerReload(commands.Cog):
                 )
                 return
 
-        if self.needs_alembic_upgrade(changed_files):
-            await message.edit(
-                content=f':card_box: Applying migrations for {update_text}...\n\n'
-                f'**Commits**\n{commit_text}'
-            )
+        if needs_alembic_upgrade(changed_files):
             status, stdout, stderr = await run_process(
                 *ALEMBIC_COMMAND, cwd=PROJECT_ROOT_PATH
             )
