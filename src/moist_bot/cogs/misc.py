@@ -7,6 +7,8 @@ import discord
 from discord.ext import commands
 from discord.utils import escape_mentions
 
+from moist_bot.utils.checks import has_guild_permissions_or_dm
+
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
     from moist_bot.utils.context import Context
@@ -42,11 +44,13 @@ class Miscellaneous(commands.Cog):
         await message.edit(content=f'{msg} in {int(ping)}ms')
 
     @commands.command()
+    @has_guild_permissions_or_dm(manage_messages=True)
     @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def say(self, ctx: Context, *, msg: Annotated[str, escape_mentions]):
         await ctx.send(msg)
 
     @commands.command()
+    @has_guild_permissions_or_dm(manage_messages=True)
     @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def stutter(self, ctx: Context, *, msg: Annotated[str, escape_mentions]):
         stuttered_msg = '  '.join(
