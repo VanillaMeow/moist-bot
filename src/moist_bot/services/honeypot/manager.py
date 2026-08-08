@@ -26,11 +26,10 @@ from .constants import (
     SOFTBAN_DELETE_MESSAGE_SECONDS,
 )
 from .message_bloom import MessageBloomFilter
-from .scanner import MessageScanner
+from .scanner import HoneypotScanner
 from .types import (
     GuildMessage,
     HoneypotPunishmentAction,
-    HoneypotScanResult,
     Punishment,
 )
 
@@ -56,7 +55,7 @@ class HoneypotManager:
         # Components
         self.config: HoneypotConfig = HoneypotConfig(self)
         self.handled_message_bloom: MessageBloomFilter = MessageBloomFilter()
-        self.message_scanner: MessageScanner = MessageScanner(self)
+        self.scanner: HoneypotScanner = HoneypotScanner(self)
 
         # Locks and tasks
         self._rebuild_bloom_task: asyncio.Task[Any] | None = None
@@ -136,30 +135,9 @@ class HoneypotManager:
             config=config,
         )
 
-    async def scan_guild(
-        self, guild_id: int, *, ignore_disabled: bool = False
-    ) -> HoneypotScanResult:
-        """Scan the configured honeypot channel for one guild."""
-        return await self.message_scanner.scan_guild(
-            guild_id,
-            ignore_disabled=ignore_disabled,
-        )
-
-    async def scan_enabled_configs(self) -> HoneypotScanResult:
-        """Scan all enabled honeypot configs."""
-        return await self.message_scanner.scan_enabled_configs()
-
-    def start_scan_once(self) -> None:
-        """Start the one-time automatic honeypot scan."""
-        self.message_scanner.start_scan_once()
-
-    def mark_scan_once_done(self) -> None:
-        """Mark the automatic scan as already handled for this process."""
-        self.message_scanner.mark_scan_once_done()
-
-    def cancel_scan(self) -> None:
-        """Cancel a pending automatic scan."""
-        self.message_scanner.cancel_scan()
+    def cancel_tasks(self) -> None:
+        """Cancel pending honeypot background tasks."""
+        self.scanner.cancel()
 
         if self._rebuild_bloom_task is not None and not self._rebuild_bloom_task.done():
             self._rebuild_bloom_task.cancel()

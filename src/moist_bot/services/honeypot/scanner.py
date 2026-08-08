@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 log = logging.getLogger('discord.' + __name__)
 
 
-class MessageScanner:
+class HoneypotScanner:
     """Scan configured honeypot channels for existing messages."""
 
     def __init__(self, manager: HoneypotManager) -> None:
@@ -269,7 +269,7 @@ class MessageScanner:
         async with lock:
             return await self._scan_config(config=config, before=before)
 
-    async def scan_guild(
+    async def scan(
         self, guild_id: int, *, ignore_disabled: bool = False
     ) -> HoneypotScanResult:
         """Scan the configured honeypot channel for one guild."""
@@ -308,7 +308,7 @@ class MessageScanner:
             log.exception(f'Honeypot scan failed for guild {config.guild_id}.')
             return HoneypotScanResult(configs_checked=1)
 
-    async def scan_enabled_configs(self) -> HoneypotScanResult:
+    async def scan_enabled(self) -> HoneypotScanResult:
         """Scan all enabled honeypot configs."""
 
         result = HoneypotScanResult()
@@ -333,7 +333,7 @@ class MessageScanner:
         log.info('Finished honeypot scan.')
         return result
 
-    def start_scan_once(self) -> None:
+    def start_once(self) -> None:
         """Start the one-time automatic honeypot scan."""
 
         if self._scan_once_done:
@@ -349,14 +349,14 @@ class MessageScanner:
                 log.exception('Honeypot scan failed.')
 
         self._scan_once_done = True
-        self._scan_once_task = asyncio.create_task(self.scan_enabled_configs())
+        self._scan_once_task = asyncio.create_task(self.scan_enabled())
         self._scan_once_task.add_done_callback(handle_scan_once_done)
 
-    def mark_scan_once_done(self) -> None:
+    def mark_once_done(self) -> None:
         """Mark the automatic scan as already handled for this process."""
         self._scan_once_done = True
 
-    def cancel_scan(self) -> None:
+    def cancel(self) -> None:
         """Cancel a pending automatic scan."""
         if self._scan_once_task is not None and not self._scan_once_task.done():
             self._scan_once_task.cancel()

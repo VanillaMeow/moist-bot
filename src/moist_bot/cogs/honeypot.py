@@ -345,12 +345,12 @@ class Honeypot(commands.Cog):
         return await can_manage_honeypot(ctx)
 
     async def cog_unload(self) -> None:
-        self.bot.honeypot.cancel_scan()
+        self.bot.honeypot.cancel_tasks()
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         """Start the one-time honeypot scan after the bot is ready."""
-        self.bot.honeypot.start_scan_once()
+        self.bot.honeypot.scanner.start_once()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -601,7 +601,7 @@ class Honeypot(commands.Cog):
 
         async with ctx.typing():
             try:
-                result = await self.bot.honeypot.scan_guild(
+                result = await self.bot.honeypot.scanner.scan(
                     ctx.guild.id,
                     ignore_disabled=flags.force,
                 )
@@ -655,7 +655,7 @@ async def setup(bot: MoistBot) -> None:
     if bot.is_ready():
         manager_module = importlib.reload(honeypot_service)
         bot.honeypot = manager_module.HoneypotManager(bot)
-        bot.honeypot.mark_scan_once_done()
+        bot.honeypot.scanner.mark_once_done()
         await bot.honeypot.load()
 
     await bot.add_cog(Honeypot(bot))
