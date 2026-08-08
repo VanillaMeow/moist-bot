@@ -6,7 +6,6 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, cast
 
 import discord
-from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 
@@ -19,6 +18,7 @@ from moist_bot.models import (
 from moist_bot.utils.converters import shorten
 from moist_bot.utils.formats import plural
 
+from .config import HoneypotConfig
 from .constants import (
     BAN_TRIGGER_MODULO,
     CONTENT_EXCERPT_WIDTH,
@@ -50,10 +50,12 @@ class HoneypotManager:
         self.bot: MoistBot = bot
 
         # Cache
-        self.configs: dict[int, GuildHoneypotConfig] = {}
         self._incident_counts: defaultdict[int, int] = defaultdict(int)
         self._user_incident_counts: defaultdict[tuple[int, int], int] = defaultdict(int)
-        self._handled_message_bloom: MessageBloomFilter = MessageBloomFilter()
+
+        # Components
+        self.config: HoneypotConfig = HoneypotConfig(self)
+        self.handled_message_bloom: MessageBloomFilter = MessageBloomFilter()
         self.message_scanner: MessageScanner = MessageScanner(self)
 
         # Locks and tasks
@@ -64,12 +66,11 @@ class HoneypotManager:
         )
 
     async def load(self) -> None:
-        """Load all honeypot configs into memory."""
+        """Load honeypot state into memory."""
 
         async with self._load_lock:
+            await self.config.load()
             async with self.bot.db_session_maker() as session:
-                result = await session.execute(select(GuildHoneypotConfig))
-                rows = list(result.scalars().all())
                 incident_counts = await HoneypotGuildStats.counts_by_guild(session)
                 user_counts_result = await session.execute(select(HoneypotUserStats))
                 user_counts = {
@@ -82,30 +83,17 @@ class HoneypotManager:
                     for incident in incidents_result.scalars().all()
                 ]
 
-            self.configs.clear()
             self._incident_counts = defaultdict(int, incident_counts)
             self._user_incident_counts = defaultdict(int, user_counts)
-            self._handled_message_bloom = MessageBloomFilter(
+            self.handled_message_bloom = MessageBloomFilter(
                 expected_items=sum(incident_counts.values())
             )
 
-            for row in rows:
-                self.configs[row.guild_id] = row
             for guild_id, message_id in handled_message_keys:
-                self._handled_message_bloom.add(
+                self.handled_message_bloom.add(
                     guild_id=guild_id,
                     message_id=message_id,
                 )
-
-            log.info(f'Loaded {len(rows)} honeypot configs.')
-
-    def get_config(self, guild_id: int) -> GuildHoneypotConfig | None:
-        """Return the cached config for a guild."""
-        return self.configs.get(guild_id)
-
-    def enabled_configs(self) -> tuple[GuildHoneypotConfig, ...]:
-        """Return all enabled cached honeypot configs."""
-        return tuple(config for config in self.configs.values() if config.enabled)
 
     def incident_count_for_guild(self, *, guild_id: int) -> int:
         """Return the total number of honeypot incidents for a guild."""
@@ -122,136 +110,6 @@ class HoneypotManager:
             if incident_guild_id == guild_id and count > 0
         )
 
-    async def set_config(
-        self,
-        *,
-        guild_id: int,
-        channel_id: int,
-        log_channel_id: int,
-        updated_by_id: int,
-    ) -> GuildHoneypotConfig:
-        """Create or update a guild honeypot config."""
-
-        async with self.bot.db_session_maker() as session:
-            result = await session.execute(
-                select(GuildHoneypotConfig).where(
-                    col(GuildHoneypotConfig.guild_id) == guild_id
-                )
-            )
-            config = result.scalar_one_or_none()
-            if config is None:
-                config = GuildHoneypotConfig(
-                    guild_id=guild_id,
-                    channel_id=channel_id,
-                    log_channel_id=log_channel_id,
-                )
-                session.add(config)
-            elif config.channel_id != channel_id:
-                config.alert_message_id = None
-
-            config.channel_id = channel_id
-            config.log_channel_id = log_channel_id
-            config.enabled = True
-            config.updated_at = discord.utils.utcnow()
-            config.updated_by_id = updated_by_id
-            await session.flush()
-            await session.commit()
-
-        self.configs[guild_id] = config
-        return config
-
-    async def set_alert_message_id(
-        self,
-        *,
-        guild_id: int,
-        alert_message_id: int,
-        updated_by_id: int,
-    ) -> GuildHoneypotConfig | None:
-        """Updates a guild config's alert message id."""
-
-        async with self.bot.db_session_maker() as session:
-            result = await session.execute(
-                select(GuildHoneypotConfig).where(
-                    col(GuildHoneypotConfig.guild_id) == guild_id
-                )
-            )
-            config = result.scalar_one_or_none()
-            if config is None:
-                self.configs.pop(guild_id, None)
-                return None
-
-            config.alert_message_id = alert_message_id
-            config.updated_at = discord.utils.utcnow()
-            config.updated_by_id = updated_by_id
-            await session.flush()
-            await session.commit()
-
-        self.configs[guild_id] = config
-        return config
-
-    async def disable_config(self, *, guild_id: int, updated_by_id: int) -> bool:
-        """Disable a guild honeypot config if one exists."""
-
-        return await self.set_config_enabled(
-            guild_id=guild_id, enabled=False, updated_by_id=updated_by_id
-        )
-
-    async def enable_config(self, *, guild_id: int, updated_by_id: int) -> bool:
-        """Enable a guild honeypot config if one exists."""
-
-        return await self.set_config_enabled(
-            guild_id=guild_id, enabled=True, updated_by_id=updated_by_id
-        )
-
-    async def set_config_enabled(
-        self, *, guild_id: int, enabled: bool, updated_by_id: int
-    ) -> bool:
-        """Set whether a guild honeypot config is enabled if one exists."""
-
-        async with self.bot.db_session_maker() as session:
-            result = await session.execute(
-                select(GuildHoneypotConfig).where(
-                    col(GuildHoneypotConfig.guild_id) == guild_id
-                )
-            )
-            config = result.scalar_one_or_none()
-            if config is None:
-                return False
-
-            config.enabled = enabled
-            config.updated_at = discord.utils.utcnow()
-            config.updated_by_id = updated_by_id
-            await session.flush()
-            await session.commit()
-
-        self.configs[guild_id] = config
-        return True
-
-    async def delete_config(self, *, guild_id: int) -> bool:
-        """Deletes a guild honeypot config while preserving incident history."""
-
-        async with self.bot.db_session_maker() as session:
-            result = await session.execute(
-                select(GuildHoneypotConfig).where(
-                    col(GuildHoneypotConfig.guild_id) == guild_id
-                )
-            )
-            config = result.scalar_one_or_none()
-            if config is None:
-                self.configs.pop(guild_id, None)
-                return False
-
-            await session.execute(
-                update(HoneypotIncident)
-                .where(col(HoneypotIncident.guild_id) == guild_id)
-                .values(config_id=None)
-            )
-            await session.delete(config)
-            await session.commit()
-
-        self.configs.pop(guild_id, None)
-        return True
-
     async def handle_message(self, message: discord.Message) -> None:
         """Handle a live message sent to a configured honeypot channel."""
 
@@ -264,7 +122,7 @@ class HoneypotManager:
             message = cast('GuildMessage', message)
 
         # Config reject conditions
-        config = self.get_config(message.guild.id)
+        config = self.config.get(message.guild.id)
         if (
             config is None
             or message.channel.id != config.channel_id
@@ -325,7 +183,7 @@ class HoneypotManager:
     ) -> set[int]:
         """Return already-recorded honeypot message IDs."""
 
-        maybe_recorded_ids = self._handled_message_bloom.maybe_contained_ids(
+        maybe_recorded_ids = self.handled_message_bloom.maybe_contained_ids(
             guild_id=guild_id,
             message_ids=message_ids,
         )
@@ -579,7 +437,7 @@ class HoneypotManager:
     async def _message_was_handled(self, *, guild_id: int, message_id: int) -> bool:
         """Return whether a message is already represented in incident history."""
 
-        if not self._handled_message_bloom.might_contain(
+        if not self.handled_message_bloom.might_contain(
             guild_id=guild_id, message_id=message_id
         ):
             return False
@@ -604,7 +462,7 @@ class HoneypotManager:
             self._user_incident_counts[user_key], incident.trigger_count
         )
 
-        self._handled_message_bloom.add(
+        self.handled_message_bloom.add(
             guild_id=incident.guild_id, message_id=incident.message_id
         )
 
@@ -615,7 +473,7 @@ class HoneypotManager:
             await self._rebuild_bloom_task
             return
 
-        if not self._handled_message_bloom.over_capacity():
+        if not self.handled_message_bloom.over_capacity():
             return
 
         async def _rebuild() -> None:
@@ -629,7 +487,7 @@ class HoneypotManager:
             bloom = MessageBloomFilter(expected_items=len(keys) * 2)
             for guild_id, message_id in keys:
                 bloom.add(guild_id=guild_id, message_id=message_id)
-            self._handled_message_bloom = bloom
+            self.handled_message_bloom = bloom
 
         async def _task() -> None:
             try:

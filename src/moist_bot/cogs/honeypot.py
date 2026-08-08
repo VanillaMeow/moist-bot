@@ -358,7 +358,7 @@ class Honeypot(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild) -> None:
-        await self.bot.honeypot.delete_config(guild_id=guild.id)
+        await self.bot.honeypot.config.delete(guild_id=guild.id)
 
     @commands.group(name='honeypot', invoke_without_command=True)
     @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
@@ -402,7 +402,7 @@ class Honeypot(commands.Cog):
             await ctx.reply('\n'.join(lines))
             return
 
-        config = await self.bot.honeypot.set_config(
+        config = await self.bot.honeypot.config.set(
             guild_id=ctx.guild.id,
             channel_id=honeypot_channel.id,
             log_channel_id=log_channel.id,
@@ -437,7 +437,7 @@ class Honeypot(commands.Cog):
     ) -> None:
         """Send or update the configured honeypot alert message."""
 
-        config = self.bot.honeypot.get_config(ctx.guild.id)
+        config = self.bot.honeypot.config.get(ctx.guild.id)
         if config is None:
             await ctx.reply(
                 ':warning: This server does not have a honeypot configured.'
@@ -458,7 +458,7 @@ class Honeypot(commands.Cog):
                 ctx, channel, config.alert_message_id
             )
             if message is not None:
-                await self.bot.honeypot.set_alert_message_id(
+                await self.bot.honeypot.config.set_alert_message_id(
                     guild_id=ctx.guild.id,
                     alert_message_id=message.id,
                     updated_by_id=ctx.author.id,
@@ -469,7 +469,6 @@ class Honeypot(commands.Cog):
                 return
             if not can_continue:
                 return
-
 
         # Send the alert message
         try:
@@ -482,7 +481,7 @@ class Honeypot(commands.Cog):
             return
 
         # Update the config
-        await self.bot.honeypot.set_alert_message_id(
+        await self.bot.honeypot.config.set_alert_message_id(
             guild_id=ctx.guild.id,
             alert_message_id=message.id,
             updated_by_id=ctx.author.id,
@@ -499,7 +498,7 @@ class Honeypot(commands.Cog):
         You can also use `honeypot enable` or `honeypot disable`.
         """
 
-        config = self.bot.honeypot.get_config(ctx.guild.id)
+        config = self.bot.honeypot.config.get(ctx.guild.id)
         if config is None:
             await ctx.reply(
                 ':warning: This server does not have a honeypot configured.'
@@ -512,13 +511,13 @@ class Honeypot(commands.Cog):
         )
 
         if should_enable:
-            await self.bot.honeypot.enable_config(
+            await self.bot.honeypot.config.enable(
                 guild_id=ctx.guild.id,
                 updated_by_id=ctx.author.id,
             )
             action = 'enabled'
         else:
-            await self.bot.honeypot.disable_config(
+            await self.bot.honeypot.config.disable(
                 guild_id=ctx.guild.id,
                 updated_by_id=ctx.author.id,
             )
@@ -531,7 +530,7 @@ class Honeypot(commands.Cog):
     async def honeypot_show(self, ctx: GuildContext) -> None:
         """Show this server's honeypot config."""
 
-        config = self.bot.honeypot.get_config(ctx.guild.id)
+        config = self.bot.honeypot.config.get(ctx.guild.id)
         if config is None:
             await ctx.reply(
                 ':warning: This server does not have a honeypot configured.'
@@ -587,7 +586,7 @@ class Honeypot(commands.Cog):
     ) -> None:
         """Scan this server's configured honeypot channel."""
 
-        config = self.bot.honeypot.get_config(ctx.guild.id)
+        config = self.bot.honeypot.config.get(ctx.guild.id)
         if config is None:
             await ctx.reply(
                 ':warning: This server does not have a honeypot configured.'

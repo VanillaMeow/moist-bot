@@ -274,7 +274,7 @@ class MessageScanner:
     ) -> HoneypotScanResult:
         """Scan the configured honeypot channel for one guild."""
 
-        config = self.manager.get_config(guild_id)
+        config = self.manager.config.get(guild_id)
         if config is None:
             return HoneypotScanResult()
         if not config.enabled and not ignore_disabled:
@@ -312,7 +312,7 @@ class MessageScanner:
         """Scan all enabled honeypot configs."""
 
         result = HoneypotScanResult()
-        configs = self.manager.enabled_configs()
+        configs = self.manager.config.enabled()
         if not configs:
             return result
 
