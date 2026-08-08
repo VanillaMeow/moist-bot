@@ -34,8 +34,6 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from typing import Any
-
     from moist_bot.bot import MoistBot
 
 
@@ -54,11 +52,10 @@ class HoneypotManager:
 
         # Components
         self.config: HoneypotConfig = HoneypotConfig(self)
-        self.handled_message_bloom: MessageBloomFilter = MessageBloomFilter()
+        self.message_bloom: MessageBloomFilter = MessageBloomFilter(self)
         self.scanner: HoneypotScanner = HoneypotScanner(self)
 
-        # Locks and tasks
-        self._rebuild_bloom_task: asyncio.Task[Any] | None = None
+        # Locks
         self._load_lock: asyncio.Lock = asyncio.Lock()
         self._trigger_locks: defaultdict[tuple[int, int], asyncio.Lock] = defaultdict(
             asyncio.Lock
@@ -69,6 +66,7 @@ class HoneypotManager:
 
         async with self._load_lock:
             await self.config.load()
+            await self.message_bloom.load()
             async with self.bot.db_session_maker() as session:
                 incident_counts = await HoneypotGuildStats.counts_by_guild(session)
                 user_counts_result = await session.execute(select(HoneypotUserStats))
@@ -76,23 +74,9 @@ class HoneypotManager:
                     (row.guild_id, row.user_id): row.total_incidents
                     for row in user_counts_result.scalars().all()
                 }
-                incidents_result = await session.execute(select(HoneypotIncident))
-                handled_message_keys = [
-                    (incident.guild_id, incident.message_id)
-                    for incident in incidents_result.scalars().all()
-                ]
 
             self._incident_counts = defaultdict(int, incident_counts)
             self._user_incident_counts = defaultdict(int, user_counts)
-            self.handled_message_bloom = MessageBloomFilter(
-                expected_items=sum(incident_counts.values())
-            )
-
-            for guild_id, message_id in handled_message_keys:
-                self.handled_message_bloom.add(
-                    guild_id=guild_id,
-                    message_id=message_id,
-                )
 
     async def handle_message(self, message: discord.Message) -> None:
         """Handle a live message sent to a configured honeypot channel."""
@@ -247,7 +231,7 @@ class HoneypotManager:
     ) -> set[int]:
         """Return already-recorded honeypot message IDs."""
 
-        maybe_recorded_ids = self.handled_message_bloom.maybe_contained_ids(
+        maybe_recorded_ids = self.message_bloom.maybe_contained_ids(
             guild_id=guild_id,
             message_ids=message_ids,
         )
@@ -266,9 +250,7 @@ class HoneypotManager:
     def cancel_tasks(self) -> None:
         """Cancel pending honeypot background tasks."""
         self.scanner.cancel()
-
-        if self._rebuild_bloom_task is not None and not self._rebuild_bloom_task.done():
-            self._rebuild_bloom_task.cancel()
+        self.message_bloom.cancel()
 
     async def _handle_trigger(
         self, *, message: GuildMessage, config: GuildHoneypotConfig
@@ -399,14 +381,13 @@ class HoneypotManager:
                 await session.rollback()
                 return False
 
-        await self._rebuild_handled_message_bloom()
-        self._mark_incident_handled(incident)
+        await self._mark_incident_handled(incident)
         return True
 
     async def _message_was_handled(self, *, guild_id: int, message_id: int) -> bool:
         """Return whether a message is already represented in incident history."""
 
-        if not self.handled_message_bloom.might_contain(
+        if not self.message_bloom.might_contain(
             guild_id=guild_id, message_id=message_id
         ):
             return False
@@ -422,49 +403,17 @@ class HoneypotManager:
             )
             return incident_id is not None
 
-    async def _rebuild_handled_message_bloom(self) -> None:
-        """Rebuild the handled-message Bloom filter at double current size."""
-
-        if self._rebuild_bloom_task is not None and not self._rebuild_bloom_task.done():
-            await self._rebuild_bloom_task
-            return
-
-        if not self.handled_message_bloom.over_capacity():
-            return
-
-        async def _rebuild() -> None:
-            async with self.bot.db_session_maker() as session:
-                result = await session.execute(select(HoneypotIncident))
-                keys = [
-                    (incident.guild_id, incident.message_id)
-                    for incident in result.scalars().all()
-                ]
-
-            bloom = MessageBloomFilter(expected_items=len(keys) * 2)
-            for guild_id, message_id in keys:
-                bloom.add(guild_id=guild_id, message_id=message_id)
-            self.handled_message_bloom = bloom
-
-        async def _task() -> None:
-            try:
-                await _rebuild()
-            finally:
-                if self._rebuild_bloom_task is asyncio.current_task():
-                    self._rebuild_bloom_task = None
-
-        self._rebuild_bloom_task = asyncio.create_task(_task())
-
-    def _mark_incident_handled(self, incident: HoneypotIncident) -> None:
+    async def _mark_incident_handled(self, incident: HoneypotIncident) -> None:
         """Reflect a recorded incident in the in-memory caches."""
 
+        await self.message_bloom.add(
+            guild_id=incident.guild_id,
+            message_id=incident.message_id,
+        )
         self._incident_counts[incident.guild_id] += 1
         user_key = (incident.guild_id, incident.user_id)
         self._user_incident_counts[user_key] = max(
             self._user_incident_counts[user_key], incident.trigger_count
-        )
-
-        self.handled_message_bloom.add(
-            guild_id=incident.guild_id, message_id=incident.message_id
         )
 
     @staticmethod
