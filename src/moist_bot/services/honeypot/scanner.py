@@ -188,7 +188,7 @@ class HoneypotScanner:
             unrecorded_messages, key=lambda message: message.created_at
         )
         delete_message_seconds = self.delete_seconds_for_oldest_message(oldest_message)
-        trigger_count = self.manager.next_trigger_count(
+        trigger_count = self.manager.next_incident_count(
             config.guild_id, batch.member.id
         )
         punishment = await self.manager.punish_member(

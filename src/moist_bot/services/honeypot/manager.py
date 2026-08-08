@@ -94,21 +94,6 @@ class HoneypotManager:
                     message_id=message_id,
                 )
 
-    def incident_count_for_guild(self, *, guild_id: int) -> int:
-        """Return the total number of honeypot incidents for a guild."""
-        return self._incident_counts[guild_id]
-
-    def incident_user_ids_for_guild(self, *, guild_id: int) -> frozenset[int]:
-        """Return user IDs with honeypot incidents for a guild."""
-        return frozenset(
-            user_id
-            for (
-                incident_guild_id,
-                user_id,
-            ), count in self._user_incident_counts.items()
-            if incident_guild_id == guild_id and count > 0
-        )
-
     async def handle_message(self, message: discord.Message) -> None:
         """Handle a live message sent to a configured honeypot channel."""
 
@@ -135,13 +120,6 @@ class HoneypotManager:
             config=config,
         )
 
-    def cancel_tasks(self) -> None:
-        """Cancel pending honeypot background tasks."""
-        self.scanner.cancel()
-
-        if self._rebuild_bloom_task is not None and not self._rebuild_bloom_task.done():
-            self._rebuild_bloom_task.cancel()
-
     async def is_exempt(self, message: discord.Message) -> bool:
         """Return whether a message should bypass automatic honeypot action."""
 
@@ -155,65 +133,6 @@ class HoneypotManager:
             or author.guild_permissions.manage_guild
             or author.guild_permissions.administrator
         )
-
-    async def recorded_message_ids(
-        self, guild_id: int, message_ids: list[int]
-    ) -> set[int]:
-        """Return already-recorded honeypot message IDs."""
-
-        maybe_recorded_ids = self.handled_message_bloom.maybe_contained_ids(
-            guild_id=guild_id,
-            message_ids=message_ids,
-        )
-        if not maybe_recorded_ids:
-            return set()
-
-        async with self.bot.db_session_maker() as session:
-            result = await session.execute(
-                select(HoneypotIncident.message_id).where(
-                    col(HoneypotIncident.guild_id) == guild_id,
-                    col(HoneypotIncident.message_id).in_(maybe_recorded_ids),
-                )
-            )
-            return set(result.scalars().all())
-
-    def next_trigger_count(self, guild_id: int, user_id: int) -> int:
-        """Return the next trigger count from the in-memory user stats."""
-        return self._user_incident_counts[guild_id, user_id] + 1
-
-    async def log_and_record_trigger(
-        self,
-        message: GuildMessage,
-        member: discord.Member,
-        config: GuildHoneypotConfig,
-        punishment: Punishment,
-    ) -> bool:
-        """Send the incident log and record the final outcome."""
-
-        incident = HoneypotIncident(
-            config_id=config.id,
-            guild_id=config.guild_id,
-            channel_id=config.channel_id,
-            log_channel_id=config.log_channel_id,
-            user_id=member.id,
-            message_id=message.id,
-            message_created_at=message.created_at,
-            content_excerpt=self._content_excerpt(message),
-            attachment_count=len(message.attachments),
-            trigger_count=punishment.trigger_count,
-            delete_message_seconds=punishment.delete_message_seconds,
-            punishment_action=punishment.action.value,
-            punishment_succeeded=punishment.succeeded,
-            punishment_error=punishment.error,
-        )
-        log_sent, log_error = await self._send_log_embed(
-            incident=incident,
-            message=message,
-            member=member,
-        )
-        incident.log_sent = log_sent
-        incident.log_error = log_error
-        return await self._create_incident(incident)
 
     async def punish_member(
         self,
@@ -270,6 +189,87 @@ class HoneypotManager:
             ban_applied=ban_applied,
         )
 
+    async def log_and_record_trigger(
+        self,
+        message: GuildMessage,
+        member: discord.Member,
+        config: GuildHoneypotConfig,
+        punishment: Punishment,
+    ) -> bool:
+        """Send the incident log and record the final outcome."""
+
+        incident = HoneypotIncident(
+            config_id=config.id,
+            guild_id=config.guild_id,
+            channel_id=config.channel_id,
+            log_channel_id=config.log_channel_id,
+            user_id=member.id,
+            message_id=message.id,
+            message_created_at=message.created_at,
+            content_excerpt=self._content_excerpt(message),
+            attachment_count=len(message.attachments),
+            trigger_count=punishment.trigger_count,
+            delete_message_seconds=punishment.delete_message_seconds,
+            punishment_action=punishment.action.value,
+            punishment_succeeded=punishment.succeeded,
+            punishment_error=punishment.error,
+        )
+        log_sent, log_error = await self._send_log_embed(
+            incident=incident,
+            message=message,
+            member=member,
+        )
+        incident.log_sent = log_sent
+        incident.log_error = log_error
+        return await self._create_incident(incident)
+
+    def incident_count_for_guild(self, *, guild_id: int) -> int:
+        """Return the total number of honeypot incidents for a guild."""
+        return self._incident_counts[guild_id]
+
+    def incident_user_ids_for_guild(self, *, guild_id: int) -> frozenset[int]:
+        """Return user IDs with honeypot incidents for a guild."""
+        return frozenset(
+            user_id
+            for (
+                incident_guild_id,
+                user_id,
+            ), count in self._user_incident_counts.items()
+            if incident_guild_id == guild_id and count > 0
+        )
+
+    def next_incident_count(self, guild_id: int, user_id: int) -> int:
+        """Return the next trigger count from the in-memory user stats."""
+        return self._user_incident_counts[guild_id, user_id] + 1
+
+    async def recorded_message_ids(
+        self, guild_id: int, message_ids: list[int]
+    ) -> set[int]:
+        """Return already-recorded honeypot message IDs."""
+
+        maybe_recorded_ids = self.handled_message_bloom.maybe_contained_ids(
+            guild_id=guild_id,
+            message_ids=message_ids,
+        )
+        if not maybe_recorded_ids:
+            return set()
+
+        async with self.bot.db_session_maker() as session:
+            result = await session.execute(
+                select(HoneypotIncident.message_id).where(
+                    col(HoneypotIncident.guild_id) == guild_id,
+                    col(HoneypotIncident.message_id).in_(maybe_recorded_ids),
+                )
+            )
+            return set(result.scalars().all())
+
+    def cancel_tasks(self) -> None:
+        """Cancel pending honeypot background tasks."""
+        self.scanner.cancel()
+
+        if self._rebuild_bloom_task is not None and not self._rebuild_bloom_task.done():
+            self._rebuild_bloom_task.cancel()
+
     async def _handle_trigger(
         self, *, message: GuildMessage, config: GuildHoneypotConfig
     ) -> None:
@@ -295,7 +295,7 @@ class HoneypotManager:
             return
 
         async with lock:
-            trigger_count = self.next_trigger_count(config.guild_id, message.author.id)
+            trigger_count = self.next_incident_count(config.guild_id, message.author.id)
             punishment = await self.punish_member(
                 message.author, trigger_count=trigger_count
             )
@@ -319,30 +319,6 @@ class HoneypotManager:
                 f'in guild {message.guild} ({message.guild.id}): {e}'
             )
             return False
-        return True
-
-    async def _create_incident(self, incident: HoneypotIncident) -> bool:
-        """Record one completed incident and update stats."""
-
-        if await self._message_was_handled(
-            guild_id=incident.guild_id, message_id=incident.message_id
-        ):
-            return False
-
-        async with self.bot.db_session_maker() as session:
-            await HoneypotGuildStats.increment(session, guild_id=incident.guild_id)
-            await HoneypotUserStats.increment(
-                session, guild_id=incident.guild_id, user_id=incident.user_id
-            )
-            session.add(incident)
-            try:
-                await session.commit()
-            except IntegrityError:
-                await session.rollback()
-                return False
-
-        await self._rebuild_handled_message_bloom()
-        self._mark_incident_handled(incident)
         return True
 
     async def _send_log_embed(
@@ -403,14 +379,29 @@ class HoneypotManager:
         )
         return True, None
 
-    @staticmethod
-    def _content_excerpt(message: GuildMessage) -> str | None:
-        """Return a bounded content excerpt for logs and incident storage."""
+    async def _create_incident(self, incident: HoneypotIncident) -> bool:
+        """Record one completed incident and update stats."""
 
-        content = message.content.strip()
-        if not content:
-            return None
-        return shorten(content, CONTENT_EXCERPT_WIDTH)
+        if await self._message_was_handled(
+            guild_id=incident.guild_id, message_id=incident.message_id
+        ):
+            return False
+
+        async with self.bot.db_session_maker() as session:
+            await HoneypotGuildStats.increment(session, guild_id=incident.guild_id)
+            await HoneypotUserStats.increment(
+                session, guild_id=incident.guild_id, user_id=incident.user_id
+            )
+            session.add(incident)
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                return False
+
+        await self._rebuild_handled_message_bloom()
+        self._mark_incident_handled(incident)
+        return True
 
     async def _message_was_handled(self, *, guild_id: int, message_id: int) -> bool:
         """Return whether a message is already represented in incident history."""
@@ -430,19 +421,6 @@ class HoneypotManager:
                 .limit(1)
             )
             return incident_id is not None
-
-    def _mark_incident_handled(self, incident: HoneypotIncident) -> None:
-        """Reflect a recorded incident in the in-memory caches."""
-
-        self._incident_counts[incident.guild_id] += 1
-        user_key = (incident.guild_id, incident.user_id)
-        self._user_incident_counts[user_key] = max(
-            self._user_incident_counts[user_key], incident.trigger_count
-        )
-
-        self.handled_message_bloom.add(
-            guild_id=incident.guild_id, message_id=incident.message_id
-        )
 
     async def _rebuild_handled_message_bloom(self) -> None:
         """Rebuild the handled-message Bloom filter at double current size."""
@@ -475,3 +453,25 @@ class HoneypotManager:
                     self._rebuild_bloom_task = None
 
         self._rebuild_bloom_task = asyncio.create_task(_task())
+
+    def _mark_incident_handled(self, incident: HoneypotIncident) -> None:
+        """Reflect a recorded incident in the in-memory caches."""
+
+        self._incident_counts[incident.guild_id] += 1
+        user_key = (incident.guild_id, incident.user_id)
+        self._user_incident_counts[user_key] = max(
+            self._user_incident_counts[user_key], incident.trigger_count
+        )
+
+        self.handled_message_bloom.add(
+            guild_id=incident.guild_id, message_id=incident.message_id
+        )
+
+    @staticmethod
+    def _content_excerpt(message: GuildMessage) -> str | None:
+        """Return a bounded content excerpt for logs and incident storage."""
+
+        content = message.content.strip()
+        if not content:
+            return None
+        return shorten(content, CONTENT_EXCERPT_WIDTH)
