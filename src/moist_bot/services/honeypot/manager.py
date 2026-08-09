@@ -67,12 +67,22 @@ class HoneypotManager:
         async with self._load_lock:
             await self.config.load()
             await self.message_bloom.load()
-            async with self.bot.db_session_maker() as session:
-                incident_counts = await HoneypotGuildStats.counts_by_guild(session)
-                user_counts = await HoneypotUserStats.counts_by_guild_user(session)
 
-            self._incident_counts = defaultdict(int, incident_counts)
-            self._user_incident_counts = defaultdict(int, user_counts)
+            incident_counts: defaultdict[int, int] = defaultdict(int)
+            user_incident_counts: defaultdict[tuple[int, int], int] = defaultdict(int)
+            async with self.bot.db_session_maker() as session:
+                # Load incident counts
+                iter_ = HoneypotGuildStats.iter_counts_by_guild
+                async for guild_id, total in iter_(session):
+                    incident_counts[guild_id] = total
+
+                # Load user incident counts
+                iter_ = HoneypotUserStats.iter_counts_by_guild_user
+                async for guild_id, user_id, total in iter_(session):
+                    user_incident_counts[guild_id, user_id] = total
+
+            self._incident_counts = incident_counts
+            self._user_incident_counts = user_incident_counts
 
     async def handle_message(self, message: discord.Message) -> None:
         """Handle a live message sent to a configured honeypot channel."""

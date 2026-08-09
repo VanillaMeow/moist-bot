@@ -23,7 +23,7 @@ from sqlmodel import Field, SQLModel, col, select
 from moist_bot.db.constants import DATABASE_STREAM_BATCH_SIZE
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import AsyncIterator, Iterable
 
     from sqlalchemy.ext.asyncio import AsyncSession
     from sqlalchemy.sql.elements import ColumnElement
@@ -59,8 +59,11 @@ class HoneypotGuildStats(SQLModel, table=True):
     total_incidents: int = Field(default=0, sa_type=Integer)
 
     @classmethod
-    async def counts_by_guild(cls, session: AsyncSession) -> dict[int, int]:
-        """Return precomputed incident counts keyed by guild id."""
+    async def iter_counts_by_guild(
+        cls,
+        session: AsyncSession,
+    ) -> AsyncIterator[tuple[int, int]]:
+        """Yield precomputed incident counts keyed by guild id."""
 
         result = await session.stream(
             sa_select(
@@ -68,10 +71,8 @@ class HoneypotGuildStats(SQLModel, table=True):
                 col(cls.total_incidents),
             ).execution_options(yield_per=DATABASE_STREAM_BATCH_SIZE)
         )
-        return {
-            guild_id: total_incidents
-            async for guild_id, total_incidents in result.tuples()
-        }
+        async for guild_id, total_incidents in result.tuples():
+            yield guild_id, total_incidents
 
     @classmethod
     async def increment(cls, session: AsyncSession, *, guild_id: int) -> int:
@@ -121,11 +122,11 @@ class HoneypotUserStats(SQLModel, table=True):
     total_incidents: int = Field(default=0, sa_type=Integer)
 
     @classmethod
-    async def counts_by_guild_user(
+    async def iter_counts_by_guild_user(
         cls,
         session: AsyncSession,
-    ) -> dict[tuple[int, int], int]:
-        """Return precomputed incident counts keyed by guild and user IDs."""
+    ) -> AsyncIterator[tuple[int, int, int]]:
+        """Yield precomputed incident counts keyed by guild and user IDs."""
 
         result = await session.stream(
             sa_select(
@@ -134,10 +135,8 @@ class HoneypotUserStats(SQLModel, table=True):
                 col(cls.total_incidents),
             ).execution_options(yield_per=DATABASE_STREAM_BATCH_SIZE)
         )
-        return {
-            (guild_id, user_id): total_incidents
-            async for guild_id, user_id, total_incidents in result.tuples()
-        }
+        async for guild_id, user_id, total_incidents in result.tuples():
+            yield guild_id, user_id, total_incidents
 
     @classmethod
     async def increment(
