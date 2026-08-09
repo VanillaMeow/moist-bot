@@ -14,10 +14,13 @@ from sqlalchemy import (
     Integer,
     UniqueConstraint,
     func,
+    select as sa_select,
     update,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Field, SQLModel, col, select
+
+from moist_bot.db.constants import DATABASE_STREAM_BATCH_SIZE
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -59,8 +62,16 @@ class HoneypotGuildStats(SQLModel, table=True):
     async def counts_by_guild(cls, session: AsyncSession) -> dict[int, int]:
         """Return precomputed incident counts keyed by guild id."""
 
-        result = await session.execute(select(cls))
-        return {row.guild_id: row.total_incidents for row in result.scalars().all()}
+        result = await session.stream(
+            sa_select(
+                col(cls.guild_id),
+                col(cls.total_incidents),
+            ).execution_options(yield_per=DATABASE_STREAM_BATCH_SIZE)
+        )
+        return {
+            guild_id: total_incidents
+            async for guild_id, total_incidents in result.tuples()
+        }
 
     @classmethod
     async def increment(cls, session: AsyncSession, *, guild_id: int) -> int:
@@ -108,6 +119,25 @@ class HoneypotUserStats(SQLModel, table=True):
     guild_id: int = Field(sa_type=BigInteger, primary_key=True)
     user_id: int = Field(sa_type=BigInteger, primary_key=True)
     total_incidents: int = Field(default=0, sa_type=Integer)
+
+    @classmethod
+    async def counts_by_guild_user(
+        cls,
+        session: AsyncSession,
+    ) -> dict[tuple[int, int], int]:
+        """Return precomputed incident counts keyed by guild and user IDs."""
+
+        result = await session.stream(
+            sa_select(
+                col(cls.guild_id),
+                col(cls.user_id),
+                col(cls.total_incidents),
+            ).execution_options(yield_per=DATABASE_STREAM_BATCH_SIZE)
+        )
+        return {
+            (guild_id, user_id): total_incidents
+            async for guild_id, user_id, total_incidents in result.tuples()
+        }
 
     @classmethod
     async def increment(
@@ -260,5 +290,7 @@ class HoneypotIncident(SQLModel, table=True):
     ) -> int:
         """Return the number of incidents matching the criteria."""
 
-        result = await session.execute(select(func.count(col(cls.id))).where(*criteria))
+        result = await session.execute(
+            select(func.count()).select_from(cls).where(*criteria)
+        )
         return result.scalar_one()

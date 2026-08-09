@@ -5,9 +5,10 @@ import logging
 from typing import TYPE_CHECKING
 
 import discord
-from sqlalchemy import update
+from sqlalchemy import select as sa_select, update
 from sqlmodel import col, select
 
+from moist_bot.db.constants import DATABASE_STREAM_BATCH_SIZE
 from moist_bot.models import GuildHoneypotConfig, HoneypotIncident
 
 if TYPE_CHECKING:
@@ -29,12 +30,17 @@ class HoneypotConfig:
         """Load all honeypot configs into memory."""
 
         async with self._load_lock:
+            cache: dict[int, GuildHoneypotConfig] = {}
             async with self.manager.bot.db_session_maker() as session:
-                result = await session.execute(select(GuildHoneypotConfig))
-                rows = list(result.scalars().all())
+                statement = sa_select(GuildHoneypotConfig).execution_options(
+                    yield_per=DATABASE_STREAM_BATCH_SIZE
+                )
+                result = await session.stream_scalars(statement)
+                async for config in result:
+                    cache[config.guild_id] = config
 
-            self._cache = {row.guild_id: row for row in rows}
-            log.info(f'Loaded {len(rows)} honeypot configs.')
+            self._cache = cache
+            log.info(f'Loaded {len(cache)} honeypot configs.')
 
     def get(self, guild_id: int) -> GuildHoneypotConfig | None:
         """Return the cached config for a guild."""
@@ -57,7 +63,7 @@ class HoneypotConfig:
         async with self.manager.bot.db_session_maker() as session:
             result = await session.execute(
                 select(GuildHoneypotConfig).where(
-                    col(GuildHoneypotConfig.guild_id) == guild_id
+                    GuildHoneypotConfig.guild_id == guild_id
                 )
             )
             config = result.scalar_one_or_none()
@@ -94,7 +100,7 @@ class HoneypotConfig:
         async with self.manager.bot.db_session_maker() as session:
             result = await session.execute(
                 select(GuildHoneypotConfig).where(
-                    col(GuildHoneypotConfig.guild_id) == guild_id
+                    GuildHoneypotConfig.guild_id == guild_id
                 )
             )
             config = result.scalar_one_or_none()
@@ -141,7 +147,7 @@ class HoneypotConfig:
         async with self.manager.bot.db_session_maker() as session:
             result = await session.execute(
                 select(GuildHoneypotConfig).where(
-                    col(GuildHoneypotConfig.guild_id) == guild_id
+                    GuildHoneypotConfig.guild_id == guild_id
                 )
             )
             config = result.scalar_one_or_none()
@@ -164,7 +170,7 @@ class HoneypotConfig:
         async with self.manager.bot.db_session_maker() as session:
             result = await session.execute(
                 select(GuildHoneypotConfig).where(
-                    col(GuildHoneypotConfig.guild_id) == guild_id
+                    GuildHoneypotConfig.guild_id == guild_id
                 )
             )
             config = result.scalar_one_or_none()

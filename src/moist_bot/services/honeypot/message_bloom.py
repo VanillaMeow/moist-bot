@@ -5,8 +5,10 @@ import logging
 from typing import TYPE_CHECKING
 
 from fastbloom_rs import BloomFilter
-from sqlmodel import select
+from sqlalchemy import func, select
+from sqlmodel import col
 
+from moist_bot.db.constants import DATABASE_STREAM_BATCH_SIZE
 from moist_bot.models import HoneypotIncident
 
 from .constants import BLOOM_MIN_EXPECTED_ITEMS
@@ -50,8 +52,7 @@ class MessageBloomFilter:
     async def load(self) -> None:
         """Load all handled honeypot message keys into the filter."""
 
-        keys = await self._load_keys()
-        self._replace(keys, expected_items=len(keys))
+        await self._rebuild(growth_factor=1)
 
     @staticmethod
     def _key(*, guild_id: int, message_id: int) -> bytes:
@@ -99,32 +100,36 @@ class MessageBloomFilter:
             if maybe_present
         ]
 
-    async def _load_keys(self) -> list[tuple[int, int]]:
-        """Load handled message keys from incident storage."""
+    async def _rebuild(
+        self,
+        *,
+        growth_factor: int,
+    ) -> None:
+        """Build and install a filter from persisted handled-message keys."""
 
         async with self.manager.bot.db_session_maker() as session:
-            result = await session.execute(select(HoneypotIncident))
-            return [
-                (incident.guild_id, incident.message_id)
-                for incident in result.scalars().all()
-            ]
+            item_count = await session.scalar(
+                select(func.count()).select_from(HoneypotIncident)
+            )
+            capacity = max(
+                BLOOM_MIN_EXPECTED_ITEMS,
+                (item_count or 0) * growth_factor * 2,
+            )
+            bloom = BloomFilter(capacity, self._false_positive_rate)
+            statement = select(
+                col(HoneypotIncident.guild_id),
+                col(HoneypotIncident.message_id),
+            ).execution_options(yield_per=DATABASE_STREAM_BATCH_SIZE)
+            result = await session.stream(statement)
 
-    def _replace(
-        self,
-        keys: list[tuple[int, int]],
-        *,
-        expected_items: int,
-    ) -> None:
-        """Replace the filter with one populated from handled message keys."""
-
-        capacity = max(BLOOM_MIN_EXPECTED_ITEMS, expected_items * 2)
-        bloom = BloomFilter(capacity, self._false_positive_rate)
-        for guild_id, message_id in keys:
-            bloom.add_bytes(self._key(guild_id=guild_id, message_id=message_id))
+            inserted_items = 0
+            async for guild_id, message_id in result.tuples():
+                bloom.add_bytes(self._key(guild_id=guild_id, message_id=message_id))
+                inserted_items += 1
 
         self.bloom = bloom
         self.expected_items = capacity
-        self.inserted_items = len(keys)
+        self.inserted_items = inserted_items
 
     async def _rebuild_if_needed(self) -> None:
         """Wait for an active rebuild or schedule one when at capacity."""
@@ -142,7 +147,7 @@ class MessageBloomFilter:
         """Run a scheduled rebuild and handle its task lifecycle."""
 
         try:
-            await self._rebuild()
+            await self._rebuild(growth_factor=2)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -150,9 +155,3 @@ class MessageBloomFilter:
         finally:
             if self._rebuild_task is asyncio.current_task():
                 self._rebuild_task = None
-
-    async def _rebuild(self) -> None:
-        """Rebuild the filter from persisted handled message keys."""
-
-        keys = await self._load_keys()
-        self._replace(keys, expected_items=len(keys) * 2)

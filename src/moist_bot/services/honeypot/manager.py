@@ -69,11 +69,7 @@ class HoneypotManager:
             await self.message_bloom.load()
             async with self.bot.db_session_maker() as session:
                 incident_counts = await HoneypotGuildStats.counts_by_guild(session)
-                user_counts_result = await session.execute(select(HoneypotUserStats))
-                user_counts = {
-                    (row.guild_id, row.user_id): row.total_incidents
-                    for row in user_counts_result.scalars().all()
-                }
+                user_counts = await HoneypotUserStats.counts_by_guild_user(session)
 
             self._incident_counts = defaultdict(int, incident_counts)
             self._user_incident_counts = defaultdict(int, user_counts)
@@ -241,7 +237,7 @@ class HoneypotManager:
         async with self.bot.db_session_maker() as session:
             result = await session.execute(
                 select(HoneypotIncident.message_id).where(
-                    col(HoneypotIncident.guild_id) == guild_id,
+                    HoneypotIncident.guild_id == guild_id,
                     col(HoneypotIncident.message_id).in_(maybe_recorded_ids),
                 )
             )
@@ -396,8 +392,8 @@ class HoneypotManager:
             incident_id = await session.scalar(
                 select(HoneypotIncident.id)
                 .where(
-                    col(HoneypotIncident.guild_id) == guild_id,
-                    col(HoneypotIncident.message_id) == message_id,
+                    HoneypotIncident.guild_id == guild_id,
+                    HoneypotIncident.message_id == message_id,
                 )
                 .limit(1)
             )
