@@ -432,15 +432,27 @@ class OwnerReload(commands.Cog):
 
         changed_text = format_file_list(changed_files, limit=650)
         if not targets:
-            content = (
-                f':white_check_mark: Updated {update_text}.\n\n'
-                f'**Commits**\n{commit_text}\n\n'
-                f'**Changed files**\n{changed_text}\n\n'
-                'No reloadable cog files changed.'
+            embed = (
+                discord.Embed(
+                    title='Update complete',
+                    description=f'Updated {update_text}.',
+                    colour=discord.Colour.green(),
+                )
+                .add_field(name='Commits', value=commit_text, inline=False)
+                .add_field(name='Changed files', value=changed_text, inline=False)
+                .add_field(
+                    name='Reload status',
+                    value='No reloadable cog files changed.',
+                    inline=False,
+                )
             )
             if restart_required:
-                content += '\nUse `restart` for these changes to fully take effect.'
-            await message.edit(content=content)
+                embed.add_field(
+                    name='\N{WARNING SIGN} Restart required',
+                    value='Use `restart` for the non-cog changes to fully take effect.',
+                    inline=False,
+                )
+            await message.edit(content=None, embed=embed)
             return
 
         loaded_targets: list[ReloadTarget] = []
@@ -454,21 +466,35 @@ class OwnerReload(commands.Cog):
             destination.append(target)
 
         if not loaded_targets:
-            content = (
-                f':white_check_mark: Updated {update_text}.\n\n'
-                f'**Commits**\n{commit_text}\n\n'
-                f'**Changed files**\n{changed_text}\n\n'
-                'No already-loaded cog modules changed.'
+            embed = discord.Embed(
+                title='Update complete',
+                description=f'Updated {update_text}.',
+                colour=discord.Colour.green(),
+            )
+            embed.add_field(name='Commits', value=commit_text, inline=False)
+            embed.add_field(name='Changed files', value=changed_text, inline=False)
+            embed.add_field(
+                name='Reload status',
+                value='No already-loaded cog modules changed.',
+                inline=False,
             )
             if skipped_targets:
                 skipped_text = '\n'.join(
                     f'{index}. `{target.display_name}`'
                     for index, target in enumerate(skipped_targets, start=1)
                 )
-                content += f'\n\n**Skipped unloaded modules**\n{skipped_text}'
+                embed.add_field(
+                    name='Skipped unloaded modules',
+                    value=skipped_text,
+                    inline=False,
+                )
             if restart_required:
-                content += '\nUse `restart` for these changes to fully take effect.'
-            await message.edit(content=content)
+                embed.add_field(
+                    name='\N{WARNING SIGN} Restart required',
+                    value='Use `restart` for the non-cog changes to fully take effect.',
+                    inline=False,
+                )
+            await message.edit(content=None, embed=embed)
             return
 
         modules_text = '\n'.join(
@@ -509,26 +535,42 @@ class OwnerReload(commands.Cog):
 
         # Reload deeper helper modules before top-level cog extensions
         statuses: list[tuple[str, str]] = []
+        failed_reloads = 0
         for target in loaded_targets:
             try:
                 await self.reload_target(target)
             except KeyError, commands.ExtensionError:
                 log.exception(f'Unable to reload {target.display_name}.')
                 statuses.append((ctx.tick(opt=False), target.display_name))
+                failed_reloads += 1
             else:
                 statuses.append((ctx.tick(opt=True), target.display_name))
 
         status_text = '\n'.join(f'{status}: `{module}`' for status, module in statuses)
-        content = (
-            f':white_check_mark: Updated {update_text}.\n\n'
-            f'**Commits**\n{commit_text}\n\n'
-            f'**Reload results**\n{status_text}\n\n'
-            f'**Changed files**\n{changed_text}'
+        embed = discord.Embed(
+            title=(
+                'Reload complete'
+                if not failed_reloads
+                else 'Reload completed with errors'
+            ),
+            description=f'Updated {update_text}.',
+            colour=(
+                discord.Colour.green()
+                if not failed_reloads
+                else discord.Colour.orange()
+            ),
         )
+        embed.add_field(name='Commits', value=commit_text, inline=False)
+        embed.add_field(name='Reload results', value=status_text, inline=False)
+        embed.add_field(name='Changed files', value=changed_text, inline=False)
         if restart_required:
-            content += '\n\n:warning: Use `restart` to apply non-cog changes.'
+            embed.add_field(
+                name='\N{WARNING SIGN} Restart required',
+                value='Use `restart` for the non-cog changes to fully take effect.',
+                inline=False,
+            )
 
-        await message.edit(content=content, view=None)
+        await message.edit(content=None, embed=embed, view=None)
 
     @commands.command(hidden=True)
     async def load(self, ctx: Context, ext: str):
