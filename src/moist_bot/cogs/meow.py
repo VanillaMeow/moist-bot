@@ -44,8 +44,8 @@ class WeightedCollection[T]:
     items: tuple[T, ...]
     weights: tuple[int, ...]
 
-    def __init__(self, *options: WeightedItem[T]) -> None:
-        """Cache item and weight tuples for repeated random choices."""
+    def __init__(self, *options: WeightedItem[T]):
+        # Cache item and weight tuples for repeated random choices
         self.items = tuple(option.item for option in options)
         self.weights = tuple(option.weight for option in options)
 
@@ -172,5 +172,4 @@ class Meow(commands.Cog):
 
 
 async def setup(bot: MoistBot) -> None:
-    """Add the meow cog to the bot."""
     await bot.add_cog(Meow(bot))
