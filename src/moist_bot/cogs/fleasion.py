@@ -1,5 +1,3 @@
-"""This is a boilerplate file to make implementing cogs easier."""
-
 from __future__ import annotations
 
 import logging
@@ -17,9 +15,9 @@ log = logging.getLogger('discord.' + __name__)
 
 FLEASION_GUILD_ID = 1309760132770693181
 FLEASION_CHANNEL_IDS = frozenset(
-    {
-        1309904275932975214  # moderation-logs
-    }
+    (
+        1309904275932975214,  # moderation-logs
+    )
 )
 
 
