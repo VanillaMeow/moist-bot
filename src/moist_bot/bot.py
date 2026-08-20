@@ -381,12 +381,62 @@ class MoistBot(commands.Bot):
 
         return await channel.fetch_message(message_id)
 
-    async def _run_softban_member(
+    async def softban_member(
         self,
         member: discord.Member,
         *,
         reason: str,
         delete_message_seconds: int,
+    ) -> SoftbanResult:
+        """Softban a member without cancellation interrupting the matching unban."""
+
+        task = asyncio.create_task(
+            self._run_softban_member(
+                member,
+                reason=reason,
+                delete_message_seconds=delete_message_seconds,
+            )
+        )
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            try:
+                await task
+            except Exception:
+                log.exception(
+                    f'Softban cleanup failed for {member} ({member.id}) '
+                    f'in guild {member.guild} ({member.guild.id}).'
+                )
+            raise
+
+    async def run_in_process_pool[T](
+        self,
+        func: Callable[..., T],
+        *args: Any,
+    ) -> T:
+        """Run CPU-heavy work in the shared process pool."""
+
+        loop = asyncio.get_running_loop()
+        executor = self.executor
+
+        try:
+            return await loop.run_in_executor(executor, func, *args)
+        except BrokenProcessPool:
+            log.exception('Process pool broke while running %s.', func)
+            await self._replace_process_pool(executor)
+            return await loop.run_in_executor(self.executor, func, *args)
+
+    async def _replace_process_pool(self, failed_executor: ProcessPoolExecutor) -> None:
+        async with self._executor_lock:
+            if self.executor is not failed_executor:
+                return
+
+            self.executor = self._create_process_pool()
+            failed_executor.shutdown(wait=False, cancel_futures=True)
+            log.warning('Replaced broken process pool executor.')
+
+    async def _run_softban_member(
+        self, member: discord.Member, *, reason: str, delete_message_seconds: int
     ) -> SoftbanResult:
         """Ban and unban a member to remove recent messages."""
 
@@ -423,63 +473,9 @@ class MoistBot(commands.Bot):
 
         return SoftbanResult(softbanned=True, error=None, ban_applied=True)
 
-    async def softban_member(
-        self,
-        member: discord.Member,
-        *,
-        reason: str,
-        delete_message_seconds: int,
-    ) -> SoftbanResult:
-        """Softban a member without cancellation interrupting the matching unban."""
-
-        task = asyncio.create_task(
-            self._run_softban_member(
-                member,
-                reason=reason,
-                delete_message_seconds=delete_message_seconds,
-            )
-        )
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            try:
-                await task
-            except Exception:
-                log.exception(
-                    f'Softban cleanup failed for {member} ({member.id}) '
-                    f'in guild {member.guild} ({member.guild.id}).'
-                )
-            raise
-
     @staticmethod
     def _create_process_pool() -> ProcessPoolExecutor:
         return ProcessPoolExecutor(max_workers=min(os.process_cpu_count() or 1, 4))
-
-    async def _replace_process_pool(self, failed_executor: ProcessPoolExecutor) -> None:
-        async with self._executor_lock:
-            if self.executor is not failed_executor:
-                return
-
-            self.executor = self._create_process_pool()
-            failed_executor.shutdown(wait=False, cancel_futures=True)
-            log.warning('Replaced broken process pool executor.')
-
-    async def run_in_process_pool[T](
-        self,
-        func: Callable[..., T],
-        *args: Any,
-    ) -> T:
-        """Run CPU-heavy work in the shared process pool."""
-
-        loop = asyncio.get_running_loop()
-        executor = self.executor
-
-        try:
-            return await loop.run_in_executor(executor, func, *args)
-        except BrokenProcessPool:
-            log.exception('Process pool broke while running %s.', func)
-            await self._replace_process_pool(executor)
-            return await loop.run_in_executor(self.executor, func, *args)
 
     @property
     def config(self) -> Any:
