@@ -6,7 +6,6 @@ import os
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast, overload
 
 import aiohttp
@@ -20,6 +19,7 @@ from .db import create_engine, create_session_maker
 from .models import BlocklistScope, BlocklistSource
 from .services import BlocklistManager, HoneypotManager
 from .settings import settings
+from .types import SoftbanResult
 from .utils.context import Context, MoistCommandTree
 
 if TYPE_CHECKING:
@@ -27,25 +27,14 @@ if TYPE_CHECKING:
     from datetime import datetime
     from typing import Any, Unpack
 
-    from anyio import Path
-    from discord import Message, app_commands
-    from discord.ext.commands.bot import _BotOptions  # type: ignore[]
+    from discord import Message
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+    from .types import BotOptions
     from .utils.context import Interaction
-
-    class BotOptions(_BotOptions, total=False):
-        command_prefix: Callable[[commands.Bot, Message], list[str]]
-        help_attrs: dict[str, Any]
-        case_insensitive: bool
-        intents: discord.Intents
-        tree_cls: type[app_commands.CommandTree[Any]]
 
 
 log = logging.getLogger('discord.' + __name__)
-
-# Aliases
-CYAN, RESET = Fore.CYAN, Fore.RESET
 
 
 # Bot
@@ -66,28 +55,19 @@ ALLOWED_MENTIONS = discord.AllowedMentions(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class SoftbanResult:
-    """Outcome of a softban attempt."""
-
-    softbanned: bool
-    error: str | None
-    ban_applied: bool
+# Aliases
+CYAN, RESET = Fore.CYAN, Fore.RESET
 
 
 def _get_prefix(bot: commands.Bot, message: Message) -> list[str]:
     return commands.when_mentioned_or(*BOT_PREFIXES)(bot, message)
 
 
-def is_extension_file(path: Path) -> bool:
-    return path.suffix == '.py' and path.stem != '__init__'
-
-
 async def discover_extension_names() -> tuple[str, ...]:
     extension_names = [
         file.stem
         async for file in COGS_FOLDER_PATH.iterdir()
-        if is_extension_file(file)
+        if file.suffix == '.py' and file.stem != '__init__'
     ]
     return tuple(sorted(extension_names))
 

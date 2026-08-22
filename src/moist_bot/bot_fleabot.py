@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
     from discord import Message
 
-    from moist_bot.bot import BotOptions
+    from moist_bot.types import BotOptions
 
 
 FLEABOT_EXTENSIONS: Final = (
