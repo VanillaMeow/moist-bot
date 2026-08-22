@@ -281,7 +281,7 @@ async def edit_honeypot_alert_message(
     """Edit an existing alert message or report why it cannot be edited."""
 
     try:
-        message = await ctx.bot.get_or_fetch_message(channel, message_id)
+        message = await ctx.bot.get_or_fetch_message(message_id, channel)
     except discord.NotFound:
         return None, True
     except discord.HTTPException:

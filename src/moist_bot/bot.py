@@ -368,16 +368,33 @@ class MoistBot(commands.Bot):
 
         return await self.fetch_guild(guild_id)
 
+    @overload
     async def get_or_fetch_message(
         self,
-        channel: discord.abc.Messageable,
         message_id: int,
-    ) -> discord.Message:
+        channel: discord.abc.Messageable,
+    ) -> discord.Message: ...
+
+    @overload
+    async def get_or_fetch_message(
+        self,
+        message_id: int,
+        channel: None = None,
+    ) -> discord.Message | None: ...
+
+    async def get_or_fetch_message(
+        self,
+        message_id: int,
+        channel: discord.abc.Messageable | None = None,
+    ) -> discord.Message | None:
         """Return a cached message or fetch it from its channel."""
 
         message = discord.utils.get(self.cached_messages, id=message_id)
         if message is not None:
             return message
+
+        if channel is None:
+            return None
 
         return await channel.fetch_message(message_id)
 

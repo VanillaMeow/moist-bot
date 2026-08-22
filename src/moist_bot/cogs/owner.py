@@ -104,7 +104,7 @@ class Owner(commands.Cog):
             )
 
         messageable = cast('discord.abc.Messageable', channel)
-        return await self.bot.get_or_fetch_message(messageable, notice.message_id)
+        return await self.bot.get_or_fetch_message(notice.message_id, messageable)
 
     @staticmethod
     def cleanup_code(content: str) -> str:
