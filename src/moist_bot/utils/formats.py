@@ -15,7 +15,7 @@ https://github.com/Rapptz/RoboDanny
 """
 
 
-class plural:  # noqa: N801
+class plural:  # ruff: ignore[invalid-class-name]
     def __init__(self, value: int):
         self.value: int = value
 

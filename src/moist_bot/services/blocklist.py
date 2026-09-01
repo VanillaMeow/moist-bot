@@ -629,7 +629,7 @@ class BlocklistManager:
 
         return guild_id in self.guilds
 
-    def check_ids(  # noqa: PLR0911
+    def check_ids(  # ruff: ignore[too-many-return-statements]
         self,
         *,
         user_id: int,

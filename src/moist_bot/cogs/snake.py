@@ -237,7 +237,7 @@ class SnakeGameContainer:
                 )
             )
             # If the snake hit a wall
-            or np.any(self.snake_head_xy + (1, 1) > self.field_dim_xy)  # noqa: RUF005
+            or np.any(self.snake_head_xy + (1, 1) > self.field_dim_xy)  # ruff: ignore[collection-literal-concatenation]
             or np.any(self.snake_head_xy < (0, 0))
         ):
             self.game_over()

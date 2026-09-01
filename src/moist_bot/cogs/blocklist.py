@@ -1,5 +1,3 @@
-# ruff: noqa: PLR0904
-
 from __future__ import annotations
 
 import importlib

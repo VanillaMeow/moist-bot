@@ -1,5 +1,3 @@
-# ruff: noqa: S311
-
 from __future__ import annotations
 
 from random import randint

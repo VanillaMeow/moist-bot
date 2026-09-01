@@ -312,7 +312,7 @@ class OwnerReload(commands.Cog):
         importlib.reload(module)
 
     @reload.command(name='all', hidden=True)
-    async def reload_all(self, ctx: Context) -> None:  # noqa: PLR0911
+    async def reload_all(self, ctx: Context):  # ruff: ignore[too-many-return-statements]
         """Pull from git and reload changed cogs."""
 
         message = await ctx.reply(':arrow_down: Pulling updates...')

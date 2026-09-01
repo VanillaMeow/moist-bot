@@ -1,4 +1,4 @@
-# ruff: noqa: ARG002
+# ruff: file-ignore[unused-method-argument]
 # pyright: standard
 # pyright: reportIncompatibleMethodOverride=false
 
@@ -164,7 +164,7 @@ class Time(HumanTime):
     ):
         try:
             o = ShortTime(argument, now=now, tzinfo=tzinfo)
-        except Exception:  # noqa: BLE001
+        except Exception:  # ruff: ignore[blind-except]
             super().__init__(argument, now=now, tzinfo=tzinfo)
         else:
             self.dt = o.dt
@@ -304,7 +304,7 @@ class UserFriendlyTime(commands.Converter):
         if argument.endswith('from now'):
             argument = argument[:-8].strip()
 
-        if argument[0:2] == 'me':  # noqa: SIM102
+        if argument[0:2] == 'me':  # ruff: ignore[collapsible-if]
             # starts with "me to", "me in", or "me at "
             if argument[0:6] in {'me to ', 'me in ', 'me at '}:
                 argument = argument[6:]

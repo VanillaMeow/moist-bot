@@ -1,4 +1,4 @@
-# ruff: noqa: PLR0911
+# ruff: file-ignore[too-many-return-statements]
 # pyright: reportMissingTypeStubs=false
 
 from __future__ import annotations

@@ -7,7 +7,9 @@ if TYPE_CHECKING:
     from anyio import Path
 
 
-async def run_process(*command: str, cwd: str | Path | None = None) -> tuple[int, str, str]:
+async def run_process(
+    *command: str, cwd: str | Path | None = None
+) -> tuple[int, str, str]:
     """Run a subprocess and capture its output.
 
     Parameters

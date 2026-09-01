@@ -1,4 +1,3 @@
-# ruff: noqa: PLR0904
 # pyright: standard
 
 from __future__ import annotations
@@ -207,7 +206,7 @@ async def send_history_paginator(
         include_author=include_author,
         include_guild=include_guild,
     )
-    await source._prepare_once()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    await source._prepare_once()  # pyright: ignore[reportPrivateUsage]
     pages = RoboPages(source, ctx=ctx, check_embeds=False)
     await pages.start()
 

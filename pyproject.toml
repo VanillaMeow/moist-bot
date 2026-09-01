@@ -65,62 +65,82 @@ target-version = "py314"
 preview = true
 select = ["ALL"]
 ignore = [
-    "E501",
-    "T201",
-    "EXE002",
-    "ANN204",
-    "RUF006",
-    "RUF029",
-    "S404",
-    "S602",
-    # "TC001",  # False positives with pydantic
-    # "TC002",  # False positives with pydantic
-    # "TC003",  # False positives with pydantic
-    "TD003",
-    "FIX002",
-    "W293",
-    "E303",
-    "G004",
-    "ERA",
+    # Handled by Ruff format
+    "line-too-long",
+    "blank-line-with-whitespace",
+    "too-many-blank-lines",
+    "missing-trailing-comma",
+    "bad-quotes-inline-string",
+    "extraneous-parentheses",
 
-    # discord.py moment
-    "ANN201",
-    "ANN202",
-    "RET503",
-    "EM101",
-    "FBT001",
-    "FBT002",
-    "C901",
-    "PLR0914",
-    "PLR0915",
-    "PLR0904",
+    # Handled by Pyright
+    "private-member-access",
 
-    # Umbra preset
-    "ANN401",
-    "ASYNC109",
-    "COM812",
-    "CPY001",
-    "D",        # not needed here
+    # Documentation and type annotations
+    "D",  # Not needed here
     "DOC",
-    "INP001",   # due to how I load modules this results in annoyances
-    "PD011",    # this is not a numpy codebase
-    "PERF203",
-    "PLC0414",  # pyright ruling for `as` imports needed
-    "PLR0912",
-    "PLR0913",
-    "PLR2004",  # I hate this rule
-    "PLR6301",
-    "Q000",
-    "RUF001",
-    "RUF009",
-    "SIM105",
-    "TRY003",   # over-eager rule
-    "TRY301",   # unrealistic rule
-    "UP034",
+    "any-type",
+    "missing-return-type-special-method",
+    "missing-return-type-undocumented-public-function",
+    "missing-return-type-private-function",
+
+    # Imports and package structure
+    "implicit-namespace-package",  # Package lookup can make this annoying
+    "useless-import-alias",  # Pyright requires some `as` imports
+    # "typing-only-first-party-import",  # False positives with Pydantic
+    # "typing-only-third-party-import",  # False positives with Pydantic
+    # "typing-only-standard-library-import",  # False positives with Pydantic
+
+    # Function and class design
+    "no-self-use",  # Can easily break code
+    "boolean-type-hint-positional-argument",
+    "boolean-default-value-positional-argument",
+    "too-many-arguments",
+    "too-many-public-methods",
+
+    # Complexity and control flow
+    "complex-structure",
+    "too-many-branches",
+    "too-many-locals",
+    "too-many-statements",
+    "magic-value-comparison",  # I hate this rule
+    "implicit-return-value",
+    "implicit-return",  # Fine for libs like discord.py
+
+    # Exceptions
+    "suppressible-exception",
+    "raise-vanilla-args",  # Over-eager rule
+    "raise-within-try",  # Unrealistic rule
+    "raw-string-in-exception",  # Fine for libs like discord.py
+
+    # Async code
+    "unused-async",  # Can easily break code
+    "async-function-with-timeout",
+
+    # Logging and console output
+    "print",
+    "logging-f-string",  # I hate this rule
+
+    # Security
+    "suspicious-subprocess-import",
+    "subprocess-popen-with-shell-equals-true",
+    "suspicious-non-cryptographic-random-usage",  # Shut the fuck up
+
+    # Source and repository hygiene
+    "ERA",  # Keep commented-out code
+    "missing-todo-link",
+    "line-contains-todo",
+    "missing-copyright-notice",
+    "shebang-missing-executable-file",
+    "ambiguous-unicode-character-string",
+
+    # Data models and library-specific rules
+    "function-call-in-dataclass-default-argument",
+    "pandas-use-of-dot-values",  # Not a pandas codebase
 ]
 unfixable = [
-    "E501", # line length handled in other ways by ruff format
-    "ERA",  # Don"t delete commented out code
+    "ERA",  # Don't delete commented-out code
+    "line-too-long",  # Ruff format handles line length
 ]
 
 [tool.ruff.format]

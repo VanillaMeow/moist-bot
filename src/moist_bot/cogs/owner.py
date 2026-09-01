@@ -1,4 +1,4 @@
-# ruff: noqa: F401, S102, S307
+# ruff: file-ignore[unused-import, exec-builtin, suspicious-eval-usage]
 # pyright: reportUnusedImport=false, reportPrivateUsage=false
 
 from __future__ import annotations
@@ -148,7 +148,7 @@ class Owner(commands.Cog):
             pass
         finally:
             # Closing the bot can cancel the command task before restart
-            os.execv(sys.executable, argv)  # noqa: S606
+            os.execv(sys.executable, argv)  # ruff: ignore[start-process-with-no-shell]
 
     @commands.command(hidden=True, name='eval')
     async def _eval(self, ctx: Context, *, body: str):
@@ -178,21 +178,21 @@ class Owner(commands.Cog):
 
         try:
             exec(to_compile, env)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # ruff: ignore[blind-except]
             return await ctx.send(f'```py\n{e.__class__.__name__}: {e}\n```')
 
         func = env['func']
         try:
             with redirect_stdout(stdout):
                 ret = await func()  # type: ignore[]
-        except Exception:  # noqa: BLE001
+        except Exception:  # ruff: ignore[blind-except]
             value = stdout.getvalue()
             await ctx.send(f'```py\n{value}{traceback.format_exc()}\n```')
         else:
             value = stdout.getvalue()
             try:
                 await ctx.message.add_reaction('\u2705')
-            except Exception:  # noqa: BLE001, S110
+            except Exception:  # ruff: ignore[blind-except, try-except-pass]
                 pass
 
             if ret is None:
@@ -282,7 +282,7 @@ class Owner(commands.Cog):
                     result = executor(code, variables)
                     if inspect.isawaitable(result):
                         result = await result
-            except Exception:  # noqa: BLE001
+            except Exception:  # ruff: ignore[blind-except]
                 value = stdout.getvalue()
                 fmt = f'```py\n{value}{traceback.format_exc()}\n```'
             else:

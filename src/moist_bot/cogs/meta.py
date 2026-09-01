@@ -158,7 +158,7 @@ class FrontPageSource(menus.PageSource):
         self.index = page_number
         return self
 
-    async def format_page(self, menu: HelpMenu, page: Any) -> discord.Embed:  # noqa: ARG002
+    async def format_page(self, menu: HelpMenu, page: Any) -> discord.Embed:  # ruff: ignore[unused-method-argument]
         embed = discord.Embed(title='Bot Help', colour=discord.Colour(0xA8B9CD))
         embed.description = inspect.cleandoc(
             f"""
@@ -213,7 +213,7 @@ class HelpMenu(RoboPages):
         self.source = source
         self.current_page = 0
 
-        await self.source._prepare_once()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        await self.source._prepare_once()  # pyright: ignore[reportPrivateUsage]
         page = await self.source.get_page(0)
         kwargs = await self._get_kwargs_from_page(page)
         self._update_labels(0)
@@ -278,7 +278,7 @@ class PaginatedHelpCommand(commands.HelpCommand):
                 continue
 
             cog = bot.get_cog(name)
-            assert cog is not None  # noqa: S101
+            assert cog is not None  # ruff: ignore[assert]
             all_commands[cog] = sorted(children, key=lambda c: c.qualified_name)
 
         menu = HelpMenu(FrontPageSource(), ctx=self.context)
@@ -374,8 +374,8 @@ class Meta(commands.Cog):
     async def _bot_stats(self, ctx: Context):
         """Various bot stat monitoring tools."""
 
-        HEALTHY = discord.Color(value=0x43B581)  # noqa: N806
-        UNHEALTHY = discord.Color(value=0xF04947)  # noqa: N806
+        HEALTHY = discord.Color(value=0x43B581)  # ruff: ignore[non-lowercase-variable-in-function]
+        UNHEALTHY = discord.Color(value=0xF04947)  # ruff: ignore[non-lowercase-variable-in-function]
         # WARNING = discord.Color(value=0xF09E47)
 
         # Process stats
@@ -392,9 +392,9 @@ class Meta(commands.Cog):
             free_memory = system_memory.available / 1024**2
 
         # Message cache stats
-        if self.bot._connection.max_messages:  # noqa: SLF001
+        if self.bot._connection.max_messages:
             message_cache = (
-                f'{len(self.bot.cached_messages)}/{self.bot._connection.max_messages}'  # noqa: SLF001
+                f'{len(self.bot.cached_messages)}/{self.bot._connection.max_messages}'
             )
         else:
             message_cache = 'Disabled'
@@ -496,7 +496,7 @@ class Meta(commands.Cog):
         started_at = discord.utils.format_dt(self.bot.started_at, 'R')
         description.append(f'Started: {started_at}')
 
-        global_rate_limit = not self.bot.http._global_over.is_set()  # noqa: SLF001
+        global_rate_limit = not self.bot.http._global_over.is_set()
         description.append(f'Global Rate Limit: {global_rate_limit}')
 
         if global_rate_limit:

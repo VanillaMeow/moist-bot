@@ -95,7 +95,7 @@ class TransparentAnimatedGifConverter:
         """Return a color for the palette that does not collide with any other already in the palette."""
         used_colors = set(self._img_p_parsed_palette.values())
         while True:
-            new_color = (randrange(256), randrange(256), randrange(256))  # noqa: S311
+            new_color = (randrange(256), randrange(256), randrange(256))
             if new_color not in used_colors:
                 return new_color
 

@@ -1,4 +1,4 @@
-# ruff: noqa: ARG002
+# ruff: file-ignore[unused-method-argument]
 # pyright: standard
 # pyright: reportIncompatibleMethodOverride=false
 
@@ -205,7 +205,7 @@ class RoboPages(discord.ui.View):
             )
             return
 
-        await self.source._prepare_once()  # type: ignore[]  # noqa: SLF001
+        await self.source._prepare_once()  # type: ignore[]
         page = await self.source.get_page(0)
         kwargs = await self._get_kwargs_from_page(page)
         if content:

@@ -1,4 +1,4 @@
-# ruff: noqa: S608
+# ruff: file-ignore[hardcoded-sql-expression]
 
 from __future__ import annotations
 

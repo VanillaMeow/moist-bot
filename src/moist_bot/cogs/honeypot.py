@@ -646,7 +646,7 @@ class Honeypot(commands.Cog):
             include_user=include_user,
             per_page=flags.limit,
         )
-        await source._prepare_once()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        await source._prepare_once()  # pyright: ignore[reportPrivateUsage]
         pages = RoboPages(source, ctx=ctx, check_embeds=False)
         await pages.start()
 
