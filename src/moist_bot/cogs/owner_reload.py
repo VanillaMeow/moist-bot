@@ -316,6 +316,7 @@ class OwnerReload(commands.Cog):
         """Pull from git and reload changed cogs."""
 
         message = await ctx.reply(':arrow_down: Pulling updates...')
+
         # Capture the current commit before pulling
         before_status, before_stdout, before_stderr = await run_git(
             'rev-parse', 'HEAD', cwd=PROJECT_ROOT_PATH
@@ -340,7 +341,7 @@ class OwnerReload(commands.Cog):
             )
             return
 
-        # Compare the new commit to the previous one
+        # Read the updated commit and stop if the pull changed nothing
         after_status, after_stdout, after_stderr = await run_git(
             'rev-parse', 'HEAD', cwd=PROJECT_ROOT_PATH
         )
@@ -358,6 +359,7 @@ class OwnerReload(commands.Cog):
             await message.edit(content=f':white_check_mark: {output}')
             return
 
+        # Build the commit summary and comparison link for the response
         remote_status, remote_stdout, _ = await run_git(
             'remote', 'get-url', 'origin', cwd=PROJECT_ROOT_PATH
         )
@@ -405,7 +407,7 @@ class OwnerReload(commands.Cog):
         targets = self.find_reload_targets(changed_files)
         restart_required = needs_restart(changed_files)
 
-        # Update the virtual environment when dependency metadata changed
+        # Apply dependency and database updates before reloading cogs
         if needs_uv_sync(changed_files):
             status, stdout, stderr = await run_process(
                 *UV_COMMAND, cwd=PROJECT_ROOT_PATH
@@ -430,6 +432,7 @@ class OwnerReload(commands.Cog):
                 )
                 return
 
+        # Report the update immediately when no cog can be reloaded
         changed_text = format_file_list(changed_files, limit=650)
         if not targets:
             embed = (
@@ -455,6 +458,7 @@ class OwnerReload(commands.Cog):
             await message.edit(content=None, embed=embed)
             return
 
+        # Separate loaded modules from changed modules that cannot be reloaded
         loaded_targets: list[ReloadTarget] = []
         skipped_targets: list[ReloadTarget] = []
         for target in targets:
@@ -466,17 +470,19 @@ class OwnerReload(commands.Cog):
             destination.append(target)
 
         if not loaded_targets:
-            embed = discord.Embed(
-                title='Update complete',
-                description=f'Updated {update_text}.',
-                colour=discord.Colour.green(),
-            )
-            embed.add_field(name='Commits', value=commit_text, inline=False)
-            embed.add_field(name='Changed files', value=changed_text, inline=False)
-            embed.add_field(
-                name='Reload status',
-                value='No already-loaded cog modules changed.',
-                inline=False,
+            embed = (
+                discord.Embed(
+                    title='Update complete',
+                    description=f'Updated {update_text}.',
+                    colour=discord.Colour.green(),
+                )
+                .add_field(name='Commits', value=commit_text, inline=False)
+                .add_field(name='Changed files', value=changed_text, inline=False)
+                .add_field(
+                    name='Reload status',
+                    value='No already-loaded cog modules changed.',
+                    inline=False,
+                )
             )
             if skipped_targets:
                 skipped_text = '\n'.join(
@@ -497,43 +503,62 @@ class OwnerReload(commands.Cog):
             await message.edit(content=None, embed=embed)
             return
 
+        # Ask the owner before reloading the affected modules
         modules_text = '\n'.join(
             f'{index}. `{target.display_name}`'
             for index, target in enumerate(loaded_targets, start=1)
         )
-        prompt_text = (
-            f':arrow_down: Pulled {update_text}.\n\n'
-            f'**Commits**\n{commit_text}\n\n'
-            f'**Modules to reload**\n{modules_text}'
+        embed = (
+            discord.Embed(
+                title='Confirm reload',
+                description=f'Pulled {update_text}.',
+                colour=discord.Colour.blurple(),
+            )
+            .add_field(name='Commits', value=commit_text, inline=False)
+            .add_field(name='Modules to reload', value=modules_text, inline=False)
         )
         if skipped_targets:
             skipped_text = '\n'.join(
                 f'{index}. `{target.display_name}`'
                 for index, target in enumerate(skipped_targets, start=1)
             )
-            prompt_text += f'\n\nSkipping unloaded module(s):\n{skipped_text}'
+            embed.add_field(
+                name='Skipped unloaded modules', value=skipped_text, inline=False
+            )
         if restart_required:
-            prompt_text += (
-                '\n\nSome non-cog code or dependency files also changed. '
-                'Reloading cogs will not apply those parts until a restart.'
+            embed.add_field(
+                name='\N{WARNING SIGN} Restart required',
+                value=(
+                    'Some non-cog code or dependency files also changed. '
+                    'Reloading cogs will not apply those parts until a restart.'
+                ),
+                inline=False,
             )
 
         confirmation = ConfirmationView(
             timeout=60.0, delete_after=False, author_id=ctx.author.id
         )
         confirmation.message = message
-        await message.edit(content=prompt_text, view=confirmation)
+        await message.edit(content=None, embed=embed, view=confirmation)
         await confirmation.wait()
+
+        # Cancel the confirmation if the user does not confirm
         confirm = confirmation.value
         if not confirm:
             result = 'Reload cancelled.' if confirm is False else 'Reload timed out.'
+            embed = discord.Embed(
+                title=result,
+                description=f'Pulled {update_text}.',
+                colour=discord.Colour.orange(),
+            ).add_field(name='Commits', value=commit_text, inline=False)
             await message.edit(
-                content=f':x: {result}\n\nPulled {update_text}.\n\n**Commits**\n{commit_text}',
+                content=None,
+                embed=embed,
                 view=None,
             )
             return
 
-        # Reload deeper helper modules before top-level cog extensions
+        # Reload helper modules before top-level cog extensions
         statuses: list[tuple[str, str]] = []
         failed_reloads = 0
         for target in loaded_targets:
@@ -546,23 +571,26 @@ class OwnerReload(commands.Cog):
             else:
                 statuses.append((ctx.tick(opt=True), target.display_name))
 
+        # Replace the confirmation with the reload results
         status_text = '\n'.join(f'{status}: `{module}`' for status, module in statuses)
-        embed = discord.Embed(
-            title=(
-                'Reload complete'
-                if not failed_reloads
-                else 'Reload completed with errors'
-            ),
-            description=f'Updated {update_text}.',
-            colour=(
-                discord.Colour.green()
-                if not failed_reloads
-                else discord.Colour.orange()
-            ),
+        embed = (
+            discord.Embed(
+                title=(
+                    'Reload complete'
+                    if not failed_reloads
+                    else 'Reload completed with errors'
+                ),
+                description=f'Updated {update_text}.',
+                colour=(
+                    discord.Colour.green()
+                    if not failed_reloads
+                    else discord.Colour.orange()
+                ),
+            )
+            .add_field(name='Commits', value=commit_text, inline=False)
+            .add_field(name='Reload results', value=status_text, inline=False)
+            .add_field(name='Changed files', value=changed_text, inline=False)
         )
-        embed.add_field(name='Commits', value=commit_text, inline=False)
-        embed.add_field(name='Reload results', value=status_text, inline=False)
-        embed.add_field(name='Changed files', value=changed_text, inline=False)
         if restart_required:
             embed.add_field(
                 name='\N{WARNING SIGN} Restart required',
