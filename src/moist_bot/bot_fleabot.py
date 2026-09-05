@@ -21,6 +21,7 @@ FLEABOT_EXTENSIONS: Final = (
     'errorhandle',
     'owner_debug',
     'blocklist',
+    'fleasion',
     'honeypot',
     'owner',
     'stats',
