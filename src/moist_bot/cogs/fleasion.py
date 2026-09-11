@@ -19,12 +19,15 @@ if TYPE_CHECKING:
 
 log = logging.getLogger('discord.' + __name__)
 
+
 FLEASION_GUILD_ID = 1309760132770693181
 FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
     (
         1309904275932975214,  # moderation-logs
     )
 )
+
+HELP_KEYWORDS = {'help', 'how to'}
 FLEASION_HELP_CHANNEL_IDS = frozenset(
     (
         1495010741940654182,  # general
@@ -67,7 +70,8 @@ class Fleasion(commands.Cog):
         message = cast('GuildMessage', message)
 
         # Main criteria
-        if message.content not in {'help', 'how to'}:
+        contents = message.content.lower()
+        if not any(keyword in contents for keyword in HELP_KEYWORDS):
             return
 
         # We want to catch only new members
