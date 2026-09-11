@@ -27,7 +27,7 @@ FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
     )
 )
 
-HELP_KEYWORDS = {'help', 'how to', 'how get'}
+HELP_KEYWORDS = {'help', 'how to', 'how get', 'how do', 'what do'}
 FLEASION_HELP_CHANNEL_IDS = frozenset(
     (
         1495010741940654182,  # general
