@@ -27,10 +27,11 @@ FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
     )
 )
 
-HELP_KEYWORDS = {'help', 'how to'}
+HELP_KEYWORDS = {'help', 'how to', 'how get'}
 FLEASION_HELP_CHANNEL_IDS = frozenset(
     (
         1495010741940654182,  # general
+        1548068976104579142,  # fleabot-help-testing
     )
 )
 
@@ -77,9 +78,7 @@ class Fleasion(commands.Cog):
         # We want to catch only new members
         for role in message.author.roles:
             if '[' in role.name:  # Level role (e.g. "Meow [L1]")
-                break
-        else:
-            return
+                return
 
         # TODO(leah): Figure out if this is viable
         # For now just forward to the testing channel
