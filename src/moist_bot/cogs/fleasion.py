@@ -34,7 +34,7 @@ FLEASION_HELP_CHANNEL_ID = 1495014874831655052
 FLEASION_HELP_CHANNEL_IDS = frozenset(
     (
         1495010741940654182,  # general
-        1548068976104579142,  # fleabot-help-testing
+        1548397150520737802,  # fleabot-hep-testing-input
     )
 )
 
@@ -63,7 +63,7 @@ class Fleasion(commands.Cog):
 
     @cached_property
     def help_message(self) -> str:
-        return f'Use {self.help_channel.mention}. Please do not ask for help here.'
+        return f'Use {self.help_channel.mention}. **Please do not ask for help here.**'
 
     def cog_check(self, ctx: Context) -> bool:  # type: ignore[]
         return bool(ctx.guild) and ctx.guild.id == FLEASION_GUILD_ID
