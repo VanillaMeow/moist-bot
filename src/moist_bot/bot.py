@@ -255,11 +255,7 @@ class MoistBot(commands.Bot):
         """Return whether this command attempt trips auto-blocklist spam control."""
 
         current = ctx.message.created_at.timestamp()
-        bucket = self.spam_control.get_bucket(ctx.message, current)
-        if bucket is None:
-            return False
-
-        retry_after = bucket.update_rate_limit(current)
+        retry_after = self.spam_control.update_rate_limit(ctx.message, current)
         if retry_after is None:
             self._auto_spam_count.pop(ctx.author.id, None)
             return False
