@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
 import discord
@@ -27,7 +28,9 @@ FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
     )
 )
 
-HELP_KEYWORDS = {'help', 'how to', 'how get', 'how do', 'what do'}
+
+HELP_KEYWORDS = {'help', 'how to', 'how get', 'how do', 'what do', 'why are'}
+FLEASION_HELP_CHANNEL_ID = 1495014874831655052
 FLEASION_HELP_CHANNEL_IDS = frozenset(
     (
         1495010741940654182,  # general
@@ -42,18 +45,32 @@ class Fleasion(commands.Cog):
 
         # Temporary until I figure out if this is viable
         self.testing_channel = cast(
-            'discord.TextChannel', bot.get_channel(1548068976104579142)
+            'discord.TextChannel', self.bot.get_channel(1548068976104579142)
         )
+
+        self.help_channel = self.bot.get_partial_messageable(
+            FLEASION_HELP_CHANNEL_ID,
+            guild_id=FLEASION_GUILD_ID,
+            type=discord.ChannelType.text,
+        )
+        # self.help_channel = cast(
+        #     'discord.TextChannel', self.bot.get_channel(FLEASION_HELP_CHANNEL_ID)
+        # )
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{CRICKET}')
 
+    @cached_property
+    def help_message(self) -> str:
+        return f'Use {self.help_channel.mention}. Please do not ask for help here.'
+
     def cog_check(self, ctx: Context) -> bool:  # type: ignore[]
         return bool(ctx.guild) and ctx.guild.id == FLEASION_GUILD_ID
 
     @commands.Cog.listener(name='on_message')
-    async def on_cleanup_message(self, message: discord.Message):  # pyright: ignore[reportRedeclaration]
+    async def on_cleanup_message(self, message: discord.Message):
+        """Delete messages that mention Fleabot in specific channel embeds."""
         bot_user = self.bot.user or 'Fleabot'
         if message.channel.id not in FLEASION_CLEANUP_CHANNEL_IDS:
             return
@@ -66,6 +83,7 @@ class Fleasion(commands.Cog):
 
     @commands.Cog.listener(name='on_message')
     async def on_help_message(self, message: discord.Message):
+        """Forward help messages to the Fleabot testing channel."""
         if message.channel.id not in FLEASION_HELP_CHANNEL_IDS:
             return
         message = cast('GuildMessage', message)
@@ -82,6 +100,7 @@ class Fleasion(commands.Cog):
 
         # TODO(leah): Figure out if this is viable
         # For now just forward to the testing channel
+        await self.testing_channel.send(self.help_message)
         await message.forward(self.testing_channel)
 
 
