@@ -218,10 +218,12 @@ __marimo__/
 
 ### Project specific
 *.log*
+*.db*
 _dev/
 
-# DB
-*.db*
+# Runtime data
+logs/
+db/
 
 # Cogs
 src/*/cogs/cdt.py
