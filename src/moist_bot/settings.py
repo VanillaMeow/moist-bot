@@ -20,7 +20,6 @@ class Settings(BaseSettings):
     # Bot
     token: str = ''
     fleabot_token: str = ''
-    use_fleabot: bool = False
 
     # Discord
     test_guild_id: int = 294545830742982656
@@ -28,6 +27,14 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = f'sqlite+aiosqlite:///{DB_PATH}'
+
+    @cached_property
+    def is_moistbot(self) -> bool:
+        return bool(self.token) and not self.is_fleabot
+
+    @cached_property
+    def is_fleabot(self) -> bool:
+        return bool(self.fleabot_token)
 
     @cached_property
     def test_guild(self) -> Object:

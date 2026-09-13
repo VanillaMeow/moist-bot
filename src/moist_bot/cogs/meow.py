@@ -4,12 +4,7 @@ from random import choices, randint
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
 
 import discord
-import pyperclip
 from discord.ext import commands
-
-from moist_bot.settings import settings
-
-pyperclip.determine_clipboard()
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
@@ -161,10 +156,6 @@ class Meow(commands.Cog):
 
         if len(random_sentence) > 2000:
             return await ctx.reply(WARN_TOO_LONG)
-
-        # Automatically copy the contents to the clipboard for bot owners :3
-        if not settings.use_fleabot and await self.bot.is_owner(ctx.author):
-            pyperclip.copy(random_sentence)
 
         await ctx.reply(random_sentence)
 

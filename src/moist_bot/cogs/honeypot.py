@@ -34,7 +34,7 @@ INCIDENT_PAGE_SIZE_MAX = 15
 VS16 = '\N{VARIATION SELECTOR-16}'  # Discord unicode variation
 ALERT = (
     '<a:alert:1509312153713250314>'
-    if settings.use_fleabot
+    if settings.is_fleabot
     else '<a:alert:1509313613284769833>'
 )
 

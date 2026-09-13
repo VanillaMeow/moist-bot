@@ -17,7 +17,7 @@ else:
 
 # Select the bot class based on settings
 bot_cls = MoistBot
-if settings.use_fleabot:
+if settings.is_fleabot:
     from moist_bot.bot_fleabot import FleaBot
 
     bot_cls = FleaBot
