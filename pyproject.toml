@@ -14,6 +14,7 @@ dependencies = [
     "aiosqlite>=0.17.0",
     "alembic>=1.18.4",
     "anyio>=4.13.0",
+    "cachetools>=7.1.8",
     "charset-normalizer>=3.4.2",
     "colorama>=0.4.6",
     "discord-ext-menus>=1.0.0a31",
@@ -42,7 +43,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pyright>=1.1.409",
+    "pytest>=9.1.1",
     "ruff>=0.15.14",
+    "types-cachetools>=7.0.0.20260713",
 ]
 
 [tool.uv.sources]
@@ -142,6 +145,9 @@ unfixable = [
     "ERA",  # Don't delete commented-out code
     "line-too-long",  # Ruff format handles line length
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["assert"]  # Allow pytest assertions
 
 [tool.ruff.format]
 quote-style = "single"

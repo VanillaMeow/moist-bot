@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import logging
-from functools import cached_property
+import re
 from typing import TYPE_CHECKING, cast
 
 import discord
 from discord.ext import commands
 
 from moist_bot.settings import settings
+from moist_bot.utils.activity import ActivityTracker
+from moist_bot.utils.reposts import RepostTracker
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
@@ -20,19 +21,108 @@ if TYPE_CHECKING:
         author: discord.Member  # type: ignore[reportIncompatibleVariableOverride]
 
 
-log = logging.getLogger('discord.' + __name__)
-
-
-FLEASION_GUILD_ID = 1309760132770693181
-FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
-    (
-        1309904275932975214,  # moderation-logs
+HELP_SOMEONE = r'(?:someone|somone|somebody|anyone|anybody|some\s*1|any\s*1)'
+HELP_GREETING = r'(?:(?:yo+|hey|hi|guys|bro|bruh|boi|pls|plz|please|so|also)\W+)*'
+HELP_REQUEST_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        # Require questions to start a message or sentence, after optional greetings
+        (
+            rf'(?:^|[.!?]\s+){HELP_GREETING}'
+            r'(?:hel+p+\b|(?:need|want)\s+(?:(?:some|sum)\s+)?hel+p+\b|'
+            r'how\s+(?:to|get|do|can|should)\b|what\s+(?:do|should|can)\b|'
+            r'what\s+does\s+(?:this|that|it)\s+mean\b|'
+            r'why\s+(?:is|are|does|do)\s+(?:my|the|this|that|it)\b)'
+        ),
+        # Keep explicit requests separate from offers, thanks and mentions of help
+        (
+            r'\b(?:i|we)\s+(?:(?:just|js|really|rlly)\s+)*'
+            r'(?:need|want)\s+(?:(?:some|sum)\s+)?hel+p+\b'
+        ),
+        (
+            rf'\b{HELP_SOMEONE}\s+'
+            r'(?:(?:here|can|could|just|js|pls|plz|please)\s+)*hel+p+\b'
+        ),
+        r'\b(?:pls|plz|please)\s+hel+p+\b',
+        r'\bhel+p+\s+me+\b',
+        r'\bwho\s+(?:can|could)\s+hel+p+\b',
+        r'\b(?:can|could)\s+i\s+(?:get|have)\s+(?:(?:some|sum)\s+)?hel+p+\b',
+        r'\bany\s+help\s+(?:would|will)\s+be\s+appreciated\b',
+        # Requests can include a call or other context before the actual help verb
+        (
+            rf'\b(?:can|could|would|will)\s+(?:{HELP_SOMEONE}|you|u)\b'
+            r'[^.!?]{0,100}\b(?:hel+p+|show|teach|explain)\b'
+        ),
+        (
+            rf'\b(?:can|could|would|will)\s+(?:{HELP_SOMEONE}|you|u)\b'
+            r'[^.!?]{0,40}\b(?:tell|dm)\s+me\b[^.!?]{0,40}\bhow\s+to\b'
+        ),
+        # Indirect questions and admissions of uncertainty still ask for instructions
+        (
+            rf'\b{HELP_SOMEONE}\s+(?:of\s+you\s+guys\s+)?'
+            r'know\s+how\s+to\b'
+        ),
+        r'\bdo\s+(?:(?:you|u)\s+know|yk)\s+how\s+to\b',
+        r'\b(?:idk|i\s+don[\x27\u2019]?t\s+know)\b[^.!?]{0,60}\bhow\s+to\b',
+        (
+            r'\bis\s+there\s+(?:a|an)\s+(?:vid|video|tutorial|tuto)\b'
+            r'[^.!?]{0,60}\bhow\s+to\b'
+        ),
+        r'\b(?:can|could|may)\s+i\s+ask\s+for\s+help\b',
+        r'\bis\s+it\s+(?:ok|okay)\s+if\s+i\s+ask\s+for\s+help\b',
     )
 )
 
 
-HELP_KEYWORDS = {'help', 'how to', 'how get', 'how do', 'what do', 'why are'}
-FLEASION_HELP_CHANNEL_ID = 1495014874831655052
+CONFIG_NAME = r'\b(?:cnfg|cfg|config)s?\b'
+CONFIG_REQUEST_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        # Ask whether someone has a config, including common chat abbreviations
+        (
+            rf'\b(?:{HELP_SOMEONE}|anb|you|u)\s+(?:have|has|got|know)\s+'
+            rf'(?!why\b|how\b|if\b|whether\b)[^.!?]{{0,160}}{CONFIG_NAME}'
+        ),
+        # Ask another user to share, send or create a config
+        (
+            rf'\b(?:can|could|would|will)\s+(?:{HELP_SOMEONE}|anb|you|u)\s+'
+            rf'(?:share|send|give|link|make)\b[^.!?]{{0,160}}{CONFIG_NAME}'
+        ),
+        rf'\b(?:send|give|link|make)\s+me\b[^.!?]{{0,160}}{CONFIG_NAME}',
+        rf'\b(?:looking|searching)\s+for\b[^.!?]{{0,160}}{CONFIG_NAME}',
+        (
+            r'\b(?:i|we)\s+(?:need|want)\s+(?!(?:(?:some|sum)\s+)?help\b|to\b)'
+            rf'[^.!?]{{0,160}}{CONFIG_NAME}'
+        ),
+        rf'\b(?:can|could)\s+i\s+(?:get|have)\b[^.!?]{{0,160}}{CONFIG_NAME}',
+        (
+            r'\b(?:is|are)\s+there\s+'
+            r'(?!(?:(?:a|an|any|some)\s+)?(?:reason|problem|issue|way|fix)\b)'
+            rf'[^.!?]{{0,160}}{CONFIG_NAME}'
+        ),
+        (
+            r'\bwhere\s+(?:(?:can|do)\s+(?:i|we)\s+|to\s+)?'
+            rf'(?:find|get|download)\b[^.!?]{{0,160}}{CONFIG_NAME}'
+        ),
+    )
+)
+
+
+# Help and activity tracking
+IS_TESTING = True
+HELP_ACTIVITY_WINDOW = 120 if settings.is_fleabot else 1
+HELP_ACTIVITY_THRESHOLD = 2
+
+HELP_SKIP_COOLDOWN = 120 if settings.is_fleabot else 1
+HELP_SKIP_COUNT = 2
+
+HELP_REPOST_WINDOW = 600
+HELP_REPOST_SIMILARITY = 0.9
+HELP_REPOST_MIN_LENGTH = 20
+HELP_REPOST_WARNING_COOLDOWN = 120
+
+FLEASION_HELP_CHANNEL_ID = 1495014874831655052  # help-chat
+FLEASION_CONFIG_CHANNEL_ID = 1463234573797167358  # configs
 FLEASION_HELP_CHANNEL_IDS = frozenset(
     (
         1495010741940654182,  # general
@@ -41,46 +131,84 @@ FLEASION_HELP_CHANNEL_IDS = frozenset(
         else 1548748199857225771,  # moist-help-testing-input
     )
 )
-HELP_TEST_CHANNEL = 1548068976104579142 if settings.is_fleabot else 1548748231242940436
+HELP_TEST_CHANNEL = 1549081891225866310 if settings.is_fleabot else 1548748231242940436
+
+
+# Channel cleanup
+FLEASION_GUILD_ID = 1309760132770693181
+FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
+    (
+        1309904275932975214,  # moderation-logs
+    )
+)
+
+
+def is_config_request(content: str) -> bool:
+    """Recognize requests to obtain configs rather than questions about using them."""
+    content = ' '.join(content.split())
+    return any(
+        pattern.search(content) is not None for pattern in CONFIG_REQUEST_PATTERNS
+    )
+
+
+def is_help_request(content: str) -> bool:
+    """Recognize common help requests without matching every mention of help."""
+    # Mentions often precede questions and should not hide the start of the request
+    content = re.sub(r'<@!?\d+>', ' ', content)
+    content = ' '.join(content.split())
+    return any(pattern.search(content) is not None for pattern in HELP_REQUEST_PATTERNS)
 
 
 class Fleasion(commands.Cog):
-    test_channel: discord.TextChannel
-
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
 
-        help_skip_count = 2
         self.help_cooldown = commands.CooldownMapping['GuildMessage'].from_cooldown(
-            rate=help_skip_count + 1,
-            per=60 * 2,
+            rate=HELP_SKIP_COUNT + 1,
+            per=HELP_SKIP_COOLDOWN,
             type=commands.BucketType.user,
         )
+        self.user_activity = ActivityTracker[tuple[int, int]](
+            window=HELP_ACTIVITY_WINDOW,
+            threshold=HELP_ACTIVITY_THRESHOLD,
+        )
+        self.help_reposts = RepostTracker[int](
+            window=HELP_REPOST_WINDOW,
+            similarity=HELP_REPOST_SIMILARITY,
+            min_length=HELP_REPOST_MIN_LENGTH,
+        )
+        self.repost_warnings = ActivityTracker[int](
+            window=HELP_REPOST_WARNING_COOLDOWN,
+            threshold=1,
+        )
+
+        # Partials
+        self.help_channel = self.bot.get_partial_messageable(
+            FLEASION_HELP_CHANNEL_ID,
+            guild_id=FLEASION_GUILD_ID,
+            type=discord.ChannelType.text,
+        )
+        self.config_channel = self.bot.get_partial_messageable(
+            FLEASION_CONFIG_CHANNEL_ID,
+            guild_id=FLEASION_GUILD_ID,
+            type=discord.ChannelType.forum,
+        )
+        self.test_channel = self.bot.get_partial_messageable(
+            HELP_TEST_CHANNEL,
+            guild_id=FLEASION_GUILD_ID,
+            type=discord.ChannelType.text,
+        )
+        self.help_message = (
+            f'Use {self.help_channel.mention}. **Please do not ask for help here.**'
+        )
+        self.config_message = f'Check {self.config_channel.mention} for configs.'
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{CRICKET}')
 
-    @cached_property
-    def help_message(self) -> str:
-        help_channel = self.bot.get_partial_messageable(
-            FLEASION_HELP_CHANNEL_ID,
-            guild_id=FLEASION_GUILD_ID,
-            type=discord.ChannelType.text,
-        )
-        return f'Use {help_channel.mention}. **Please do not ask for help here.**'
-
     def cog_check(self, ctx: Context) -> bool:  # type: ignore[]
         return bool(ctx.guild) and ctx.guild.id == FLEASION_GUILD_ID
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        """Populate the testing channel field after the cache is ready."""
-        test_channel = self.bot.get_channel(HELP_TEST_CHANNEL)
-        if test_channel is None:
-            log.warning('Testing channel not found.')
-            return
-        self.test_channel = cast('discord.TextChannel', test_channel)
 
     @commands.Cog.listener(name='on_message')
     async def on_cleanup_message(self, message: discord.Message):
@@ -98,7 +226,10 @@ class Fleasion(commands.Cog):
     @commands.Cog.listener(name='on_message')
     async def on_help_message(self, message: discord.Message):
         """Handle various automated Fleasion help messages."""
-        if message.channel.id not in FLEASION_HELP_CHANNEL_IDS:
+        if (
+            message.channel.id != FLEASION_HELP_CHANNEL_ID
+            and message.channel.id not in FLEASION_HELP_CHANNEL_IDS
+        ):
             return
         message = cast('GuildMessage', message)
 
@@ -106,36 +237,82 @@ class Fleasion(commands.Cog):
         if message.author.bot or message.webhook_id is not None:
             return
 
+        if message.channel.id == FLEASION_HELP_CHANNEL_ID:
+            self.help_reposts.record(message.author.id, message.content, message.id)
+            return
+
+        if await self._handle_help_repost(message):
+            return
+
         if await self._handle_help_message(message):
             return
 
-    async def _handle_help_message(self, message: GuildMessage) -> bool:
-        """Handle telling users to use the help channel instead.
+        self.user_activity.record((message.channel.id, message.author.id))
+
+    async def _handle_help_repost(self, message: GuildMessage) -> bool:
+        """Warn about cross-posts before ordinary help and conversation checks.
 
         Returns
         -------
         bool
             Whether the message was handled.
         """
-        # Main criteria
-        contents = message.content.lower()
-        if not any(keyword in contents for keyword in HELP_KEYWORDS):
+        original_id = self.help_reposts.find_match(message.author.id, message.content)
+        if original_id is None:
             return False
+        if self.repost_warnings.is_active(message.author.id):
+            return True
 
+        # Reserve the warning before awaiting so simultaneous reposts get one reply
+        self.repost_warnings.record(message.author.id)
+        original_message = self.help_channel.get_partial_message(original_id)
+        reply = (
+            f'Please do not repost your help message here. '
+            f'Continue in {self.help_channel.mention} '
+            f'and wait for a reply to [your original message]({original_message.jump_url}).'
+        )
+        await self._send_reply(reply, message)
+        return True
+
+    async def _handle_help_message(self, message: GuildMessage) -> bool:
+        """Direct users to the help or config channel for their request.
+
+        Returns
+        -------
+        bool
+            Whether the message was handled.
+        """
         # We want to catch only new members
         for role in message.author.roles:
             if '[' in role.name:  # Level role (e.g. "Meow [L1]")
-                return False
+                return True
 
-        if self._is_on_cooldown(self.help_cooldown, message):
+        # Main criteria
+        config_request = is_config_request(message.content)
+        if not config_request and not is_help_request(message.content):
+            return False
+
+        if self._is_help_on_cooldown(self.help_cooldown, message):
             return True
 
-        # Notify user and log the message
-        await message.reply(self.help_message)
-        await message.forward(self.test_channel)
+        key = (message.channel.id, message.author.id)
+        if self.user_activity.is_active(key):
+            return True
+
+        reply = self.config_message if config_request else self.help_message
+        await self._send_reply(reply, message)
         return True
 
-    def _is_on_cooldown(
+    async def _send_reply(self, reply: str, message: discord.Message) -> None:
+        """Send a test preview with the original message, or reply to the user."""
+        if IS_TESTING:
+            await self.test_channel.send(reply)
+            await message.forward(self.test_channel)
+            return
+
+        await message.reply(reply)
+
+    def _is_help_on_cooldown(
         self, cooldown: commands.CooldownMapping[GuildMessage], message: GuildMessage
     ) -> bool:
         """Return and update whether the cooldown is active.
