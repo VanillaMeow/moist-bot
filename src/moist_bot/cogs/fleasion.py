@@ -23,9 +23,35 @@ if TYPE_CHECKING:
 
 HELP_SOMEONE = r'(?:someone|somone|somebody|anyone|anybody|some\s*1|any\s*1)'
 HELP_GREETING = r'(?:(?:yo+|hey|hi|guys|bro|bruh|boi|pls|plz|please|so|also)\W+)*'
+HELP_APP_NAME = r'fleasi?on\b'
+HELP_APP_ACTION = r'(?:work(?:s|ing)?|run(?:s|ning)?|open(?:s|ing)?|launch(?:es|ing)?|load(?:s|ing)?)\b'
+HELP_APP_STATUS = (
+    r'(?:\s+on\s+\w+)?\s+(?:(?:still|not|even|actually|currently|just)\s+)*'
+    rf'(?:{HELP_APP_ACTION}|crash(?:es|ing)?\b|broken\b|down\b|offline\b|online\b)'
+)
 HELP_REQUEST_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
+        # Ask about the app's status without requiring a particular operating system
+        (
+            rf'(?:^|[.!?]\s+){HELP_GREETING}(?:why\s+)?'
+            r'(?:is|isn[\x27\u2019]?t|does|doesn[\x27\u2019]?t|did|has|will|'
+            r'won[\x27\u2019]?t|can|can[\x27\u2019]?t)\s+(?:my\s+)?'
+            rf'{HELP_APP_NAME}{HELP_APP_STATUS}'
+        ),
+        (
+            rf'\b{HELP_SOMEONE}\s+know\s+(?:if|why|whether)\s+'
+            rf'(?:is\s+|does\s+)?{HELP_APP_NAME}'
+            rf'(?:\s+is|\s+does)?{HELP_APP_STATUS}'
+        ),
+        # Failure reports often omit question words and punctuation entirely
+        (
+            rf'(?:^|[.!?]\s+){HELP_GREETING}(?:why\s+)?(?:my\s+)?{HELP_APP_NAME}'
+            r'\s+(?:(?:(?:is\s+)?(?:still\s+)?not|isn[\x27\u2019]?t|'
+            r'doesn[\x27\u2019]?t|won[\x27\u2019]?t|stopped)'
+            rf'\s+(?:(?:even|actually)\s+)?{HELP_APP_ACTION}|'
+            r'(?:keeps|is)\s+crashing\b)'
+        ),
         # Require questions to start a message or sentence, after optional greetings
         (
             rf'(?:^|[.!?]\s+){HELP_GREETING}'
