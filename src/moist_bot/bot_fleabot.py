@@ -28,6 +28,7 @@ FLEABOT_EXTENSIONS: Final = (
     'purge',
     'meow',
     'meta',
+    'misc',
     'jsk',
 )
 BOT_PREFIXES: Final = ('fb ', 'Fb ')
