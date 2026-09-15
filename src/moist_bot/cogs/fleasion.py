@@ -22,7 +22,11 @@ if TYPE_CHECKING:
 
 
 HELP_SOMEONE = r'(?:someone|somone|somebody|anyone|anybody|some\s*1|any\s*1)'
-HELP_GREETING = r'(?:(?:yo+|hey|hi|guys|bro|bruh|boi|pls|plz|please|so|also)\W+)*'
+HELP_GREETING = (
+    r'(?:(?:yo+|hey|hi|hello|hiya|sup|ayo|ey|oi|guys|chat|'
+    r'y[\x27\u2019]?all|everyone|anybody|folks|people|gang|team|'
+    r'bro|bros|bruh|bruv|boi|dude|man|mate|pls|plz|please|so|also)\W+)*'
+)
 HELP_APP_NAME = r'fleasi?on\b'
 HELP_APP_ACTION = r'(?:work(?:s|ing)?|run(?:s|ning)?|open(?:s|ing)?|launch(?:es|ing)?|load(?:s|ing)?)\b'
 HELP_APP_STATUS = (

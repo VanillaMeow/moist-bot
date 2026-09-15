@@ -8,6 +8,9 @@ from moist_bot.cogs.fleasion import is_config_request, is_help_request
     [
         'yoo anyone could help me i js want to search up a game but it dont show up',
         'guys can i have help',
+        'chat how do i use fleasion',
+        'Chat, how do I use Fleasion?',
+        'yo chat is fleasion working?',
         'can i have help bc when i download the skins i cant see the skin',
         'Anyone know how to remove tree leaves?',
         'do anybody of you guys know how to replace the normal arm?',
@@ -71,6 +74,38 @@ from moist_bot.cogs.fleasion import is_config_request, is_help_request
 )
 def test_detects_help_requests(content: str) -> None:
     assert is_help_request(content)
+
+
+@pytest.mark.parametrize(
+    'greeting',
+    [
+        'yall',
+        "y'all",
+        'y’all',
+        'everyone',
+        'anybody',
+        'folks',
+        'people',
+        'gang',
+        'team',
+        'hello',
+        'hiya',
+        'sup',
+        'ayo',
+        'ey',
+        'oi',
+        'dude',
+        'man',
+        'mate',
+        'bros',
+        'bruv',
+    ],
+)
+def test_greeting_prefixes(greeting: str) -> None:
+    assert is_help_request(f'{greeting} how do i use fleasion')
+    assert is_help_request(f'{greeting.upper()}, is fleasion working?')
+    assert not is_help_request(greeting)
+    assert not is_help_request(f'{greeting} that was a fun game')
 
 
 @pytest.mark.parametrize(
