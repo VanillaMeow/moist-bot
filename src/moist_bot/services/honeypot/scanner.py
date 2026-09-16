@@ -14,7 +14,6 @@ from .constants import (
     SCAN_DELETE_SECONDS_GRACE,
 )
 from .types import (
-    GuildMessage,
     HoneypotScanAlreadyRunningError,
     HoneypotScanBatch,
     HoneypotScanBatchResult,
@@ -26,6 +25,7 @@ if TYPE_CHECKING:
     from typing import Any
 
     from moist_bot.models import GuildHoneypotConfig
+    from moist_bot.types import GuildMessage
 
     from .manager import HoneypotManager
 

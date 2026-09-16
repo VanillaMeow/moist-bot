@@ -4,17 +4,10 @@ from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import TYPE_CHECKING
 
-import discord
-
 if TYPE_CHECKING:
+    import discord
 
-    class GuildMessage(discord.Message):
-        """A message in a guild."""
-
-        guild: discord.Guild
-        author: discord.Member  # type: ignore[reportIncompatibleVariableOverride]
-else:
-    GuildMessage = discord.Message
+    from moist_bot.types import GuildMessage
 
 
 class HoneypotPunishmentAction(StrEnum):

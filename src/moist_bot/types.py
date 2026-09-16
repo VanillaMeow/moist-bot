@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import discord
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
 
-    import discord
     from discord import Message, app_commands
     from discord.ext import commands
     from discord.ext.commands.bot import _BotOptions  # type: ignore[]
@@ -18,6 +19,13 @@ if TYPE_CHECKING:
         case_insensitive: bool
         intents: discord.Intents
         tree_cls: type[app_commands.CommandTree[Any]]
+
+
+class GuildMessage(discord.Message):
+    """Typing specialization for guild messages authored by a member."""
+
+    guild: discord.Guild
+    author: discord.Member  # type: ignore[reportIncompatibleVariableOverride]
 
 
 @dataclass(frozen=True, slots=True)

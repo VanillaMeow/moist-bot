@@ -28,13 +28,13 @@ from .constants import (
 from .message_bloom import MessageBloomFilter
 from .scanner import HoneypotScanner
 from .types import (
-    GuildMessage,
     HoneypotPunishmentAction,
     Punishment,
 )
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
+    from moist_bot.types import GuildMessage
 
 
 log = logging.getLogger('discord.' + __name__)
