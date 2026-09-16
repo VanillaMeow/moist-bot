@@ -2,21 +2,22 @@ from __future__ import annotations
 
 import re
 from collections import deque
-from collections.abc import Callable, Hashable
-from dataclasses import dataclass
+from collections.abc import Callable, Hashable, Iterable
 from difflib import SequenceMatcher
 from math import isfinite
-from time import monotonic
+from time import time
 from unicodedata import normalize
 
 from cachetools import TTLCache
+from pydantic import BaseModel, ConfigDict, FiniteFloat
 
 
-@dataclass(frozen=True, slots=True)
-class _RecentMessage:
+class RecentMessage(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     content: str
     message_id: int
-    recorded_at: float
+    recorded_at: FiniteFloat
 
 
 class RepostTracker[Key: Hashable]:
@@ -30,7 +31,7 @@ class RepostTracker[Key: Hashable]:
         min_length: int = 20,
         history_size: int = 5,
         maxsize: int = 10_000,
-        timer: Callable[[], float] = monotonic,
+        timer: Callable[[], float] = time,
     ) -> None:
         if not isfinite(window) or window <= 0:
             raise ValueError('window must be finite and positive')
@@ -44,26 +45,33 @@ class RepostTracker[Key: Hashable]:
         self._min_length = min_length
         self._history_size = history_size
         self._timer = timer
-        self._history = TTLCache[Key, deque[_RecentMessage]](
-            maxsize=maxsize, ttl=window, timer=timer
-        )
+
+        self._history = TTLCache[Key, deque[RecentMessage]](maxsize=maxsize, ttl=window)
 
     @staticmethod
     def _normalize(content: str) -> str:
         # Ignore case, punctuation and spacing changes when comparing reposts
         return re.sub(r'[\W_]+', ' ', normalize('NFKC', content).casefold()).strip()
 
-    def record(self, key: Key, content: str, message_id: int) -> None:
+    def record(
+        self,
+        key: Key,
+        content: str,
+        message_id: int,
+        *,
+        recorded_at: float | None = None,
+    ) -> None:
         """Remember source text long enough to compare without storing a message object."""
         content = self._normalize(content)
         if len(content) < self._min_length:
             return
 
-        messages = self._history.get(key)
-        if messages is None:
-            messages = deque[_RecentMessage](maxlen=self._history_size)
-        messages.append(_RecentMessage(content, message_id, self._timer()))
-        self._history[key] = messages
+        message = RecentMessage(
+            content=content,
+            message_id=message_id,
+            recorded_at=self._timer() if recorded_at is None else recorded_at,
+        )
+        self.restore(key, (*self.snapshot(key), message))
 
     def find_match(self, key: Key, content: str) -> int | None:
         """Return the newest similar source message ID, or None if none matches."""
@@ -71,15 +79,8 @@ class RepostTracker[Key: Hashable]:
         if len(content) < self._min_length:
             return None
 
-        messages = self._history.get(key)
-        if messages is None:
-            return None
-
-        current = self._timer()
-        for message in reversed(messages):
-            # New source messages refresh the cache entry but not older messages
-            if current - message.recorded_at >= self._window:
-                break
+        for message in reversed(self.snapshot(key)):
+            # Exact copies do not need the more expensive fuzzy comparison
             if content == message.content:
                 return message.message_id
 
@@ -91,4 +92,35 @@ class RepostTracker[Key: Hashable]:
                 and matcher.ratio() >= self._similarity
             ):
                 return message.message_id
+
         return None
+
+    def snapshot(self, key: Key) -> tuple[RecentMessage, ...]:
+        """Return unexpired source messages suitable for persistence."""
+        current = self._timer()
+
+        # New messages refresh the cache entry, but older messages still expire alone
+        return tuple(
+            message
+            for message in self._history.get(key, ())
+            if 0 <= current - message.recorded_at < self._window
+        )
+
+    def restore(self, key: Key, messages: Iterable[RecentMessage]) -> None:
+        """Restore source messages while retaining their original ages."""
+        current = self._timer()
+
+        # Deduplicate by message ID before keeping the newest source messages
+        recent = {
+            message.message_id: message
+            for message in messages
+            if 0 <= current - message.recorded_at < self._window
+        }
+        ordered = sorted(recent.values(), key=lambda message: message.recorded_at)
+
+        if ordered:
+            self._history[key] = deque(
+                ordered[-self._history_size :], maxlen=self._history_size
+            )
+        else:
+            self._history.pop(key, None)

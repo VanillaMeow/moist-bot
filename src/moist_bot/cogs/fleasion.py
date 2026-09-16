@@ -6,19 +6,13 @@ from typing import TYPE_CHECKING, cast
 import discord
 from discord.ext import commands
 
+from moist_bot.services.tracking import TrackingConfig, TrackingService
 from moist_bot.settings import settings
-from moist_bot.utils.activity import ActivityTracker
-from moist_bot.utils.reposts import RepostTracker
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
+    from moist_bot.types import GuildMessage
     from moist_bot.utils.context import Context
-
-    class GuildMessage(discord.Message):
-        """A message in a guild."""
-
-        guild: discord.Guild
-        author: discord.Member  # type: ignore[reportIncompatibleVariableOverride]
 
 
 HELP_SOMEONE = r'(?:someone|somone|somebody|anyone|anybody|some\s*1|any\s*1)'
@@ -193,23 +187,20 @@ class Fleasion(commands.Cog):
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
 
-        self.help_cooldown = commands.CooldownMapping['GuildMessage'].from_cooldown(
-            rate=HELP_SKIP_COUNT + 1,
-            per=HELP_SKIP_COOLDOWN,
-            type=commands.BucketType.user,
-        )
-        self.user_activity = ActivityTracker[tuple[int, int]](
-            window=HELP_ACTIVITY_WINDOW,
-            threshold=HELP_ACTIVITY_THRESHOLD,
-        )
-        self.help_reposts = RepostTracker[int](
-            window=HELP_REPOST_WINDOW,
-            similarity=HELP_REPOST_SIMILARITY,
-            min_length=HELP_REPOST_MIN_LENGTH,
-        )
-        self.repost_warnings = ActivityTracker[int](
-            window=HELP_REPOST_WARNING_COOLDOWN,
-            threshold=1,
+        namespace = 'fleabot:fleasion' if settings.is_fleabot else 'moistbot:fleasion'
+        self.tracking = TrackingService(
+            bot.db_session_maker,
+            namespace,
+            config=TrackingConfig(
+                activity_window=HELP_ACTIVITY_WINDOW,
+                activity_threshold=HELP_ACTIVITY_THRESHOLD,
+                help_window=HELP_SKIP_COOLDOWN,
+                help_skip_count=HELP_SKIP_COUNT,
+                repost_window=HELP_REPOST_WINDOW,
+                repost_similarity=HELP_REPOST_SIMILARITY,
+                repost_min_length=HELP_REPOST_MIN_LENGTH,
+                warning_window=HELP_REPOST_WARNING_COOLDOWN,
+            ),
         )
 
         # Partials
@@ -237,6 +228,10 @@ class Fleasion(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{CRICKET}')
 
+    async def cog_load(self) -> None:
+        # Restore unexpired state before the cog starts receiving messages
+        await self.tracking.load()
+
     def cog_check(self, ctx: Context) -> bool:  # type: ignore[]
         return bool(ctx.guild) and ctx.guild.id == FLEASION_GUILD_ID
 
@@ -256,6 +251,8 @@ class Fleasion(commands.Cog):
     @commands.Cog.listener(name='on_message')
     async def on_help_message(self, message: discord.Message):
         """Handle various automated Fleasion help messages."""
+        if message.guild is None:
+            return
         if (
             message.channel.id != FLEASION_HELP_CHANNEL_ID
             and message.channel.id not in FLEASION_HELP_CHANNEL_IDS
@@ -268,7 +265,7 @@ class Fleasion(commands.Cog):
             return
 
         if message.channel.id == FLEASION_HELP_CHANNEL_ID:
-            self.help_reposts.record(message.author.id, message.content, message.id)
+            await self.tracking.record_repost_source(message)
             return
 
         if await self._handle_help_repost(message):
@@ -277,7 +274,7 @@ class Fleasion(commands.Cog):
         if await self._handle_help_message(message):
             return
 
-        self.user_activity.record((message.channel.id, message.author.id))
+        await self.tracking.record_activity(message)
 
     async def _handle_help_repost(self, message: GuildMessage) -> bool:
         """Warn about cross-posts before ordinary help and conversation checks.
@@ -287,14 +284,12 @@ class Fleasion(commands.Cog):
         bool
             Whether the message was handled.
         """
-        original_id = self.help_reposts.find_match(message.author.id, message.content)
+        original_id = await self.tracking.find_repost(message)
         if original_id is None:
             return False
-        if self.repost_warnings.is_active(message.author.id):
+        if not await self.tracking.claim_repost_warning(message):
             return True
 
-        # Reserve the warning before awaiting so simultaneous reposts get one reply
-        self.repost_warnings.record(message.author.id)
         original_message = self.help_channel.get_partial_message(original_id)
         reply = (
             f'Please do not repost your help message here. '
@@ -322,11 +317,10 @@ class Fleasion(commands.Cog):
         if not config_request and not is_help_request(message.content):
             return False
 
-        if self._is_help_on_cooldown(self.help_cooldown, message):
+        if await self.tracking.check_help_cooldown(message):
             return True
 
-        key = (message.channel.id, message.author.id)
-        if self.user_activity.is_active(key):
+        if await self.tracking.is_active(message):
             return True
 
         reply = self.config_message if config_request else self.help_message
@@ -341,33 +335,6 @@ class Fleasion(commands.Cog):
             return
 
         await message.reply(reply)
-
-    def _is_help_on_cooldown(
-        self, cooldown: commands.CooldownMapping[GuildMessage], message: GuildMessage
-    ) -> bool:
-        """Return and update whether the cooldown is active.
-
-        Returns
-        -------
-        bool
-            Whether the cooldown is active.
-        """
-        current = message.created_at.timestamp()
-        bucket = cooldown.get_bucket(message, current)
-        if bucket is None:  # Shouldn't happen
-            return True
-
-        # Handle cooldowns
-        tokens = bucket.get_tokens(current)
-        if 0 < tokens < bucket.rate:
-            # Skip the next `rate - 1` triggers within the current window
-            bucket.update_rate_limit(current)
-            return True
-
-        # Log the first trigger, or restart after skips or expiry
-        bucket.reset()
-        bucket.update_rate_limit(current)
-        return False
 
 
 async def setup(bot: MoistBot) -> None:
