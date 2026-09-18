@@ -187,7 +187,7 @@ class Fleasion(commands.Cog):
 
         namespace = 'fleabot:fleasion' if settings.is_fleabot else 'moistbot:fleasion'
         self.tracking = TrackingService(bot.db_session_maker, namespace, config=CONFIG)
-        self.is_testing: bool = True
+        self.is_testing: bool = False
 
         # Partials
         self.help_channel = self.bot.get_partial_messageable(
