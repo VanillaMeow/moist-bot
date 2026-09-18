@@ -253,18 +253,20 @@ class Fleasion(commands.Cog):
         """Handle various automated Fleasion help messages."""
         if message.guild is None:
             return
+        message = cast('GuildMessage', message)
+
+        is_help_channel = message.channel.id == FLEASION_HELP_CHANNEL_ID
         if (
-            message.channel.id != FLEASION_HELP_CHANNEL_ID
+            not is_help_channel
             and message.channel.id not in FLEASION_HELP_CHANNEL_IDS
         ):
             return
-        message = cast('GuildMessage', message)
 
         # Global exceptions
         if message.author.bot or message.webhook_id is not None:
             return
 
-        if message.channel.id == FLEASION_HELP_CHANNEL_ID:
+        if is_help_channel:
             await self.tracking.record_repost_source(message)
             return
 
