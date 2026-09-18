@@ -141,14 +141,8 @@ class Owner(commands.Cog):
             await session.commit()
 
         log.warning(f'Restart requested by {ctx.author} ({ctx.author.id}).')
-        argv = [sys.executable, *sys.argv]
-        try:
-            await self.bot.close()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            # Closing the bot can cancel the command task before restart
-            os.execv(sys.executable, argv)  # ruff: ignore[start-process-with-no-shell]
+        self.bot.restart_requested = True
+        await self.bot.close()
 
     @commands.command(hidden=True, name='eval')
     async def _eval(self, ctx: Context, *, body: str):

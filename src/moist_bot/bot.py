@@ -122,6 +122,7 @@ class MoistBot(commands.Bot):
         self.started_at: datetime = DATETIME_NEVER
         self.is_shutting_down: asyncio.Event = asyncio.Event()
         self._executor_lock: asyncio.Lock = asyncio.Lock()
+        self.restart_requested: bool = False
         self.synced: bool = True
 
         # Database

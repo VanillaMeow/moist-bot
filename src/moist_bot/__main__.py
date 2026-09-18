@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import gc
+import os
+import sys
 
 from moist_bot.bot import MoistBot
 from moist_bot.settings import settings
@@ -23,21 +26,26 @@ if settings.is_fleabot:
     bot_cls = FleaBot
 
 
-async def run_bot() -> None:
+async def run_bot() -> bool:
     async with bot_cls() as bot:
         await bot.start()
+    return bot.restart_requested
 
 
-async def _main() -> None:
+async def _main() -> bool:
     with setup_logging():
         try:
-            await run_bot()
+            return await run_bot()
         except KeyboardInterrupt, asyncio.CancelledError:
-            pass
+            return False
 
 
 def main() -> None:
-    async_driver.run(_main())
+    restart_requested = async_driver.run(_main())
+    if restart_requested:
+        # Release cyclic resources after all async shutdown work has finished
+        gc.collect()
+        os.execv(sys.executable, [sys.executable, *sys.argv])  # ruff: ignore[start-process-with-no-shell]
 
 
 if __name__ == '__main__':
