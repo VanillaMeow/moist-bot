@@ -50,6 +50,9 @@ class RepostTracker[Key: Hashable]:
 
     @staticmethod
     def _normalize(content: str) -> str:
+        # Emoji names and IDs must not count toward the minimum text length
+        content = re.sub(r'<a?:\w+:\d+>', ' ', content)
+
         # Ignore case, punctuation and spacing changes when comparing reposts
         return re.sub(r'[\W_]+', ' ', normalize('NFKC', content).casefold()).strip()
 
