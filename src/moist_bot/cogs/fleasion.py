@@ -133,18 +133,6 @@ CONFIG_REQUEST_PATTERNS = tuple(
 
 
 # Help and activity tracking
-IS_TESTING = True
-HELP_ACTIVITY_WINDOW = 120 if settings.is_fleabot else 1
-HELP_ACTIVITY_THRESHOLD = 2
-
-HELP_SKIP_COOLDOWN = 120 if settings.is_fleabot else 1
-HELP_SKIP_COUNT = 2
-
-HELP_REPOST_WINDOW = 600
-HELP_REPOST_SIMILARITY = 0.9
-HELP_REPOST_MIN_LENGTH = 20
-HELP_REPOST_WARNING_COOLDOWN = 120
-
 FLEASION_HELP_CHANNEL_ID = 1495014874831655052  # help-chat
 FLEASION_CONFIG_CHANNEL_ID = 1463234573797167358  # configs
 FLEASION_HELP_CHANNEL_IDS = frozenset(
@@ -156,6 +144,16 @@ FLEASION_HELP_CHANNEL_IDS = frozenset(
     )
 )
 HELP_TEST_CHANNEL = 1549081891225866310 if settings.is_fleabot else 1548748231242940436
+CONFIG = TrackingConfig(
+    activity_window=120 if settings.is_fleabot else 1,
+    activity_threshold=2,
+    help_window=120 if settings.is_fleabot else 1,
+    help_skip_count=2,
+    repost_window=600,
+    repost_similarity=0.9,
+    repost_min_length=20,
+    warning_window=120,
+)
 
 
 # Channel cleanup
@@ -188,20 +186,8 @@ class Fleasion(commands.Cog):
         self.bot: MoistBot = bot
 
         namespace = 'fleabot:fleasion' if settings.is_fleabot else 'moistbot:fleasion'
-        self.tracking = TrackingService(
-            bot.db_session_maker,
-            namespace,
-            config=TrackingConfig(
-                activity_window=HELP_ACTIVITY_WINDOW,
-                activity_threshold=HELP_ACTIVITY_THRESHOLD,
-                help_window=HELP_SKIP_COOLDOWN,
-                help_skip_count=HELP_SKIP_COUNT,
-                repost_window=HELP_REPOST_WINDOW,
-                repost_similarity=HELP_REPOST_SIMILARITY,
-                repost_min_length=HELP_REPOST_MIN_LENGTH,
-                warning_window=HELP_REPOST_WARNING_COOLDOWN,
-            ),
-        )
+        self.tracking = TrackingService(bot.db_session_maker, namespace, config=CONFIG)
+        self.is_testing: bool = True
 
         # Partials
         self.help_channel = self.bot.get_partial_messageable(
@@ -219,10 +205,17 @@ class Fleasion(commands.Cog):
             guild_id=FLEASION_GUILD_ID,
             type=discord.ChannelType.text,
         )
-        self.help_message = (
+
+        # Messages
+        self.HELP_MESSAGE = (
             f'Use {self.help_channel.mention}. **Please do not ask for help here.**'
         )
-        self.config_message = f'Check {self.config_channel.mention} for configs.'
+        self.CONFIG_MESSAGE = f'Check {self.config_channel.mention} for configs.'
+        self.REPOST_MESSAGE_PARTIAL = (
+            'Please do not repost your help message here. '
+            f'Continue in {self.help_channel.mention} '
+            'and wait for a reply to [your original message]({}).'
+        )
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -256,10 +249,7 @@ class Fleasion(commands.Cog):
         message = cast('GuildMessage', message)
 
         is_help_channel = message.channel.id == FLEASION_HELP_CHANNEL_ID
-        if (
-            not is_help_channel
-            and message.channel.id not in FLEASION_HELP_CHANNEL_IDS
-        ):
+        if not is_help_channel and message.channel.id not in FLEASION_HELP_CHANNEL_IDS:
             return
 
         # Global exceptions
@@ -293,11 +283,7 @@ class Fleasion(commands.Cog):
             return True
 
         original_message = self.help_channel.get_partial_message(original_id)
-        reply = (
-            f'Please do not repost your help message here. '
-            f'Continue in {self.help_channel.mention} '
-            f'and wait for a reply to [your original message]({original_message.jump_url}).'
-        )
+        reply = self.REPOST_MESSAGE_PARTIAL.format(original_message.jump_url)
         await self._send_reply(reply, message)
         return True
 
@@ -325,18 +311,26 @@ class Fleasion(commands.Cog):
         if await self.tracking.is_active(message):
             return True
 
-        reply = self.config_message if config_request else self.help_message
+        reply = self.CONFIG_MESSAGE if config_request else self.HELP_MESSAGE
         await self._send_reply(reply, message)
         return True
 
     async def _send_reply(self, reply: str, message: discord.Message) -> None:
         """Send a test preview with the original message, or reply to the user."""
-        if IS_TESTING:
+        if self.is_testing:
             await self.test_channel.send(reply)
             await message.forward(self.test_channel)
             return
 
         await message.reply(reply)
+
+    @commands.command()
+    @commands.has_guild_permissions(manage_guild=True)
+    @commands.cooldown(rate=1, per=5, type=commands.BucketType.guild)
+    async def toggle(self, ctx: Context) -> None:
+        """Toggle this server's fleabot help channel."""
+        self.is_testing = not self.is_testing
+        await ctx.reply(f'Test mode is now {self.is_testing!s}.')
 
 
 async def setup(bot: MoistBot) -> None:
