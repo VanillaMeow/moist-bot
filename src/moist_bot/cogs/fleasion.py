@@ -206,7 +206,7 @@ class Fleasion(commands.Cog):
             type=discord.ChannelType.text,
         )
 
-        # Messages
+        # Responses
         self.HELP_MESSAGE = (
             f'Use {self.help_channel.mention}. **Please do not ask for help here.**'
         )
@@ -253,7 +253,11 @@ class Fleasion(commands.Cog):
             return
 
         # Global exceptions
-        if message.author.bot or message.webhook_id is not None:
+        if (
+            message.author.bot
+            or message.webhook_id is not None
+            or self._member_has_level_role(message.author)
+        ):
             return
 
         if is_help_channel:
@@ -295,11 +299,6 @@ class Fleasion(commands.Cog):
         bool
             Whether the message was handled.
         """
-        # We want to catch only new members
-        for role in message.author.roles:
-            if '[' in role.name:  # Level role (e.g. "Meow [L1]")
-                return True
-
         # Main criteria
         config_request = is_config_request(message.content)
         if not config_request and not is_help_request(message.content):
@@ -314,6 +313,12 @@ class Fleasion(commands.Cog):
         reply = self.CONFIG_MESSAGE if config_request else self.HELP_MESSAGE
         await self._send_reply(reply, message)
         return True
+
+    @staticmethod
+    def _member_has_level_role(member: discord.Member) -> bool:
+        """Return whether the user has a level role."""
+        # Level role (e.g. "Meow [L1]")
+        return any('[' in role.name for role in member.roles)
 
     async def _send_reply(self, reply: str, message: discord.Message) -> None:
         """Send a test preview with the original message, or reply to the user."""
