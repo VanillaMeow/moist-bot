@@ -1,6 +1,6 @@
 import pytest
 
-from moist_bot.cogs.fleasion import is_config_request, is_help_request
+from moist_bot.cogs.fleasion import HelpMessageClassifier, HelpMessageEnum
 
 
 @pytest.mark.parametrize(
@@ -73,7 +73,7 @@ from moist_bot.cogs.fleasion import is_config_request, is_help_request
     ],
 )
 def test_detects_help_requests(content: str) -> None:
-    assert is_help_request(content)
+    assert HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](content)
 
 
 @pytest.mark.parametrize(
@@ -102,10 +102,16 @@ def test_detects_help_requests(content: str) -> None:
     ],
 )
 def test_greeting_prefixes(greeting: str) -> None:
-    assert is_help_request(f'{greeting} how do i use fleasion')
-    assert is_help_request(f'{greeting.upper()}, is fleasion working?')
-    assert not is_help_request(greeting)
-    assert not is_help_request(f'{greeting} that was a fun game')
+    assert HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](
+        f'{greeting} how do i use fleasion'
+    )
+    assert HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](
+        f'{greeting.upper()}, is fleasion working?'
+    )
+    assert not HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](greeting)
+    assert not HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](
+        f'{greeting} that was a fun game'
+    )
 
 
 @pytest.mark.parametrize(
@@ -138,7 +144,7 @@ def test_greeting_prefixes(greeting: str) -> None:
     ],
 )
 def test_ignores_conversation(content: str) -> None:
-    assert not is_help_request(content)
+    assert not HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](content)
 
 
 @pytest.mark.parametrize(
@@ -171,7 +177,7 @@ def test_ignores_conversation(content: str) -> None:
     ],
 )
 def test_detects_config_requests(content: str) -> None:
-    assert is_config_request(content)
+    assert HelpMessageClassifier.BINDINGS[HelpMessageEnum.CONFIG](content)
 
 
 @pytest.mark.parametrize(
@@ -202,4 +208,4 @@ def test_detects_config_requests(content: str) -> None:
     ],
 )
 def test_does_not_redirect_config_discussion(content: str) -> None:
-    assert not is_config_request(content)
+    assert not HelpMessageClassifier.BINDINGS[HelpMessageEnum.CONFIG](content)

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, cast
+from enum import Enum, auto
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import discord
 from discord.ext import commands
 
-from moist_bot.services.tracking import TrackingConfig, TrackingService
+from moist_bot.services import tracking
 from moist_bot.settings import settings
+from moist_bot.utils.reload import deep_reload
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from moist_bot.bot import MoistBot
     from moist_bot.types import GuildMessage
     from moist_bot.utils.context import Context
@@ -100,7 +104,7 @@ HELP_REQUEST_PATTERNS = tuple(
 
 CONFIG_NAME = r'\b(?:cnfg|cfg|config)s?\b'
 CONFIG_REQUEST_PATTERNS = tuple(
-    re.compile(pattern, re.IGNORECASE)
+    re.compile(pattern, flags=re.IGNORECASE)
     for pattern in (
         # Ask whether someone has a config, including common chat abbreviations
         (
@@ -144,16 +148,6 @@ FLEASION_HELP_CHANNEL_IDS = frozenset(
     )
 )
 HELP_TEST_CHANNEL = 1549081891225866310 if settings.is_fleabot else 1548748231242940436
-CONFIG = TrackingConfig(
-    activity_window=120 if settings.is_fleabot else 1,
-    activity_threshold=2,
-    help_window=120 if settings.is_fleabot else 1,
-    help_skip_count=2,
-    repost_window=600,
-    repost_similarity=0.9,
-    repost_min_length=20,
-    warning_window=120,
-)
 
 
 # Channel cleanup
@@ -165,20 +159,49 @@ FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
 )
 
 
-def is_config_request(content: str) -> bool:
-    """Recognize requests to obtain configs rather than questions about using them."""
-    content = ' '.join(content.split())
-    return any(
-        pattern.search(content) is not None for pattern in CONFIG_REQUEST_PATTERNS
-    )
+class HelpMessageEnum(Enum):
+    """Types of help messages that trigger the help response."""
+
+    CONFIG = auto()
+    HELP = auto()
+    REPOST = auto()
 
 
-def is_help_request(content: str) -> bool:
-    """Recognize common help requests without matching every mention of help."""
-    # Mentions often precede questions and should not hide the start of the request
-    content = re.sub(r'<@!?\d+>', ' ', content)
-    content = ' '.join(content.split())
-    return any(pattern.search(content) is not None for pattern in HELP_REQUEST_PATTERNS)
+class HelpMessageClassifier:
+    """Classify help messages."""
+
+    @staticmethod
+    def _is_config_request(content: str) -> bool:
+        """Recognize requests to obtain configs rather than questions about using them."""
+        content = ' '.join(content.split())
+        return any(
+            pattern.search(content) is not None for pattern in CONFIG_REQUEST_PATTERNS
+        )
+
+    @staticmethod
+    def _is_help_request(content: str) -> bool:
+        """Recognize common help requests without matching every mention of help."""
+        # Mentions often precede questions and should not hide the start of the request
+        content = re.sub(r'<@!?\d+>', ' ', content)
+        content = ' '.join(content.split())
+        return any(
+            pattern.search(content) is not None for pattern in HELP_REQUEST_PATTERNS
+        )
+
+    # Order matters here
+    BINDINGS: ClassVar[dict[HelpMessageEnum, Callable[[str], bool]]] = {
+        HelpMessageEnum.CONFIG: _is_config_request,
+        HelpMessageEnum.HELP: _is_help_request,
+    }
+
+    @classmethod
+    def classify(cls, content: str) -> HelpMessageEnum | None:
+        """Classify help messages."""
+        for enum, binding in cls.BINDINGS.items():
+            if binding(content):
+                return enum
+
+        return None
 
 
 class Fleasion(commands.Cog):
@@ -186,7 +209,17 @@ class Fleasion(commands.Cog):
         self.bot: MoistBot = bot
 
         namespace = 'fleabot:fleasion' if settings.is_fleabot else 'moistbot:fleasion'
-        self.tracking = TrackingService(bot.db_session_maker, namespace, config=CONFIG)
+        config = tracking.TrackingConfig(
+            activity_window=120 if settings.is_fleabot else 1,
+            activity_threshold=2,
+            help_window=120 if settings.is_fleabot else 1,
+            help_skip_count=2,
+            repost_window=600,
+            repost_similarity=0.9,
+            repost_min_length=20,
+            warning_window=120,
+        )
+        self.tracking = tracking.TrackingService(bot, namespace, config=config)
         self.is_testing: bool = False
 
         # Partials
@@ -216,6 +249,13 @@ class Fleasion(commands.Cog):
             f'Continue in {self.help_channel.mention} '
             'and wait for a reply to [your original message]({}).'
         )
+
+        # Bindings
+        self.HELP_MESSAGE_BINDINGS = {
+            HelpMessageEnum.CONFIG: self.CONFIG_MESSAGE,
+            HelpMessageEnum.HELP: self.HELP_MESSAGE,
+            HelpMessageEnum.REPOST: self.REPOST_MESSAGE_PARTIAL,
+        }
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -300,8 +340,8 @@ class Fleasion(commands.Cog):
             Whether the message was handled.
         """
         # Main criteria
-        config_request = is_config_request(message.content)
-        if not config_request and not is_help_request(message.content):
+        help_type = HelpMessageClassifier.classify(message.content)
+        if help_type is None:
             return False
 
         if await self.tracking.check_help_cooldown(message):
@@ -310,7 +350,7 @@ class Fleasion(commands.Cog):
         if await self.tracking.is_active(message):
             return True
 
-        reply = self.CONFIG_MESSAGE if config_request else self.HELP_MESSAGE
+        reply = self.HELP_MESSAGE_BINDINGS.get(help_type, self.HELP_MESSAGE)
         await self._send_reply(reply, message)
         return True
 
@@ -339,4 +379,7 @@ class Fleasion(commands.Cog):
 
 
 async def setup(bot: MoistBot) -> None:
+    if bot.is_ready():
+        deep_reload(tracking)
+
     await bot.add_cog(Fleasion(bot))

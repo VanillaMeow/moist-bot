@@ -15,8 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Hashable
     from typing import Literal
 
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
+    from moist_bot.bot import MoistBot
     from moist_bot.types import GuildMessage
 
 
@@ -39,14 +38,16 @@ class TrackingService:
 
     def __init__(
         self,
-        sessions: async_sessionmaker[AsyncSession],
+        bot: MoistBot,
         namespace: str,
         *,
         config: TrackingConfig,
         timer: Callable[[], float] = time,
-    ) -> None:
+    ):
+        self.bot: MoistBot = bot
         self._config = config
-        self.store = TrackerStateStore(sessions, namespace, timer=timer)
+
+        self.store = TrackerStateStore(bot.db_session_maker, namespace, timer=timer)
 
         self.activity = ActivityTracker[tuple[int, int]](
             window=config.activity_window,
