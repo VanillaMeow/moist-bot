@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 from dataclasses import dataclass
 from inspect import cleandoc
 from typing import TYPE_CHECKING, cast
@@ -17,6 +16,7 @@ from moist_bot.utils import formats
 from moist_bot.utils.converters import normalize_datetime, shorten
 from moist_bot.utils.formats import plural
 from moist_bot.utils.paginator import RoboPages
+from moist_bot.utils.reload import deep_reload
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -106,7 +106,7 @@ class HoneypotStatsEmbed(discord.Embed):
         total_incidents: int,
         unique_cases: int,
         rejoined: int,
-    ) -> None:
+    ):
         super().__init__(
             title='\N{HONEY POT} Honeypot Stats',
             colour=discord.Colour.gold(),
@@ -653,7 +653,7 @@ class Honeypot(commands.Cog):
 
 async def setup(bot: MoistBot) -> None:
     if bot.is_ready():
-        manager_module = importlib.reload(honeypot_service)
+        manager_module = deep_reload(honeypot_service)
         bot.honeypot = manager_module.HoneypotManager(bot)
         bot.honeypot.scanner.mark_once_done()
         await bot.honeypot.load()
