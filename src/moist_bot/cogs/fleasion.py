@@ -47,8 +47,6 @@ FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
 
 
 class HelpMessageEnum(Enum):
-    """Types of help messages that trigger the help response."""
-
     CONFIG = auto()
     HELP = auto()
     REPOST = auto()
@@ -247,9 +245,11 @@ class Fleasion(commands.Cog):
         # Level role (e.g. "Meow [L1]")
         return any('[' in role.name for role in member.roles)
 
-    async def _send_reply(self, reply: str, message: discord.Message) -> None:
+    async def _send_reply(
+        self, reply: str, message: discord.Message, *, force_test: bool = False
+    ) -> None:
         """Send a test preview with the original message, or reply to the user."""
-        if self.is_testing:
+        if self.is_testing or force_test:
             await self.test_channel.send(reply)
             await message.forward(self.test_channel)
             return
