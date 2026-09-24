@@ -172,6 +172,7 @@ def setup_logging() -> Generator[None, Any]:
         logging.getLogger('discord.http').setLevel(logging.WARNING)
         logging.getLogger('discord.gateway').setLevel(logging.DEBUG)
         logging.getLogger('aiosqlite').setLevel(logging.DEBUG)
+        logging.getLogger('httpx2').setLevel(logging.WARNING)
         # logging.getLogger('discord.state').addFilter(RemoveNoise())
 
         # Start listener
