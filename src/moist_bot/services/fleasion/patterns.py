@@ -13,7 +13,7 @@ HELP_APP_STATUS = (
     rf'(?:{HELP_APP_ACTION}|crash(?:es|ing)?\b|broken\b|down\b|offline\b|online\b)'
 )
 HELP_REQUEST_PATTERNS = tuple(
-    re.compile(pattern, re.IGNORECASE)
+    re.compile(pattern, flags=re.IGNORECASE)
     for pattern in (
         # Ask about the app's status without requiring a particular operating system
         (
@@ -79,6 +79,29 @@ HELP_REQUEST_PATTERNS = tuple(
         ),
         r'\b(?:can|could|may)\s+i\s+ask\s+for\s+help\b',
         r'\bis\s+it\s+(?:ok|okay)\s+if\s+i\s+ask\s+for\s+help\b',
+    )
+)
+
+
+DOWNLOAD_TARGET = r'(?:fleasi?on|it|(?:the\s+)?app)'
+DOWNLOAD_LINK = r'(?:the\s+)?download(?:\s+link)?'
+DOWNLOAD_REQUEST_PATTERNS = tuple(
+    re.compile(
+        rf'{HELP_GREETING}{pattern}(?:\s+(?:pls|plz|please))?[?!.]*',
+        flags=re.IGNORECASE,
+    )
+    for pattern in (
+        (
+            r'(?:where|how)\s+(?:(?:do|can|could|should)\s+i\s+|to\s+)?'
+            rf'download(?:\s+{DOWNLOAD_TARGET})?'
+        ),
+        (
+            r'where(?:[\x27\u2019]?s|\s+is)\s+'
+            rf'(?:{DOWNLOAD_LINK}|(?:the\s+)?fleasi?on\s+download(?:\s+link)?)'
+        ),
+        rf'(?:send|give|link)\s+me\s+{DOWNLOAD_LINK}',
+        rf'(?:can|could)\s+i\s+(?:get|have)\s+{DOWNLOAD_LINK}',
+        rf'(?:where\s+(?:do|can)\s+i\s+get\s+){DOWNLOAD_LINK}',
     )
 )
 

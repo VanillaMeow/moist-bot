@@ -1,31 +1,35 @@
 from __future__ import annotations
 
-import re
-from enum import Enum, auto
-from typing import TYPE_CHECKING, ClassVar, cast
+import logging
+from functools import partial
+from typing import TYPE_CHECKING, cast
 
 import discord
 from discord.ext import commands
 
-from moist_bot.services import tracking
-from moist_bot.services.fleasion_patterns import (
-    CONFIG_REQUEST_PATTERNS,
-    HELP_REQUEST_PATTERNS,
+from moist_bot.services import fleasion, tracking
+from moist_bot.services.fleasion import (
+    HelpMessageEnum,
+    JevHelpClassifier,
+    RegexHelpClassifier,
 )
 from moist_bot.settings import settings
 from moist_bot.utils.reload import deep_reload
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from moist_bot.bot import MoistBot
+    from moist_bot.services.fleasion import JevHelpModel
     from moist_bot.types import GuildMessage
     from moist_bot.utils.context import Context
+
+
+log = logging.getLogger('discord.' + __name__)
 
 
 # Help and activity tracking
 FLEASION_HELP_CHANNEL_ID = 1495014874831655052  # help-chat
 FLEASION_CONFIG_CHANNEL_ID = 1463234573797167358  # configs
+FLEASION_DOWNLOAD_CHANNEL_ID = 1466669492284166209  # download
 FLEASION_HELP_CHANNEL_IDS = frozenset(
     (
         1495010741940654182,  # general
@@ -46,49 +50,6 @@ FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
 )
 
 
-class HelpMessageEnum(Enum):
-    CONFIG = auto()
-    HELP = auto()
-    REPOST = auto()
-
-
-class HelpMessageClassifier:
-    """Classify help messages."""
-
-    @staticmethod
-    def _is_config_request(content: str) -> bool:
-        """Recognize requests to obtain configs rather than questions about using them."""
-        content = ' '.join(content.split())
-        return any(
-            pattern.search(content) is not None for pattern in CONFIG_REQUEST_PATTERNS
-        )
-
-    @staticmethod
-    def _is_help_request(content: str) -> bool:
-        """Recognize common help requests without matching every mention of help."""
-        # Mentions often precede questions and should not hide the start of the request
-        content = re.sub(r'<@!?\d+>', ' ', content)
-        content = ' '.join(content.split())
-        return any(
-            pattern.search(content) is not None for pattern in HELP_REQUEST_PATTERNS
-        )
-
-    # Order matters here
-    BINDINGS: ClassVar[dict[HelpMessageEnum, Callable[[str], bool]]] = {
-        HelpMessageEnum.CONFIG: _is_config_request,
-        HelpMessageEnum.HELP: _is_help_request,
-    }
-
-    @classmethod
-    def classify(cls, content: str) -> HelpMessageEnum | None:
-        """Classify help messages."""
-        for enum, binding in cls.BINDINGS.items():
-            if binding(content):
-                return enum
-
-        return None
-
-
 class Fleasion(commands.Cog):
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
@@ -107,6 +68,11 @@ class Fleasion(commands.Cog):
         self.tracking = tracking.TrackingService(bot, namespace, config=config)
         self.is_testing: bool = False
 
+        # Jev Experimental
+        self._jev_classifier = JevHelpClassifier(
+            settings.jev_token.get_secret_value(), settings.jev_model
+        )
+
         # Partials
         self.help_channel = self.bot.get_partial_messageable(
             FLEASION_HELP_CHANNEL_ID,
@@ -117,6 +83,11 @@ class Fleasion(commands.Cog):
             FLEASION_CONFIG_CHANNEL_ID,
             guild_id=FLEASION_GUILD_ID,
             type=discord.ChannelType.forum,
+        )
+        self.download_channel = self.bot.get_partial_messageable(
+            FLEASION_DOWNLOAD_CHANNEL_ID,
+            guild_id=FLEASION_GUILD_ID,
+            type=discord.ChannelType.text,
         )
         self.test_channel = self.bot.get_partial_messageable(
             HELP_TEST_CHANNEL,
@@ -129,6 +100,9 @@ class Fleasion(commands.Cog):
             f'Use {self.help_channel.mention}. **Please do not ask for help here.**'
         )
         self.CONFIG_MESSAGE = f'Check {self.config_channel.mention} for configs.'
+        self.DOWNLOAD_MESSAGE = (
+            f'Download Fleasion from {self.download_channel.mention}.'
+        )
         self.REPOST_MESSAGE_PARTIAL = (
             'Please do not repost your help message here. '
             f'Continue in {self.help_channel.mention} '
@@ -138,8 +112,8 @@ class Fleasion(commands.Cog):
         # Bindings
         self.HELP_MESSAGE_BINDINGS = {
             HelpMessageEnum.CONFIG: self.CONFIG_MESSAGE,
+            HelpMessageEnum.DOWNLOAD: self.DOWNLOAD_MESSAGE,
             HelpMessageEnum.HELP: self.HELP_MESSAGE,
-            HelpMessageEnum.REPOST: self.REPOST_MESSAGE_PARTIAL,
         }
 
     @property
@@ -148,7 +122,14 @@ class Fleasion(commands.Cog):
 
     async def cog_load(self) -> None:
         # Restore unexpired state before the cog starts receiving messages
-        await self.tracking.load()
+        try:
+            await self.tracking.load()
+        except Exception:
+            await self._jev_classifier.close()
+            raise
+
+    async def cog_unload(self) -> None:
+        await self._jev_classifier.close()
 
     def cog_check(self, ctx: Context) -> bool:  # type: ignore[]
         return bool(ctx.guild) and ctx.guild.id == FLEASION_GUILD_ID
@@ -225,8 +206,14 @@ class Fleasion(commands.Cog):
             Whether the message was handled.
         """
         # Main criteria
-        help_type = HelpMessageClassifier.classify(message.content)
-        if help_type is None:
+        help_type = RegexHelpClassifier.classify(message.content)
+        self._jev_classifier.classify_background(
+            message.content,
+            on_result=partial(self._send_jev_preview, message, help_type),
+            name=f'jev-preview:{message.id}',
+        )
+
+        if help_type is HelpMessageEnum.NONE:
             return False
 
         if await self.tracking.check_help_cooldown(message):
@@ -238,6 +225,24 @@ class Fleasion(commands.Cog):
         reply = self.HELP_MESSAGE_BINDINGS.get(help_type, self.HELP_MESSAGE)
         await self._send_reply(reply, message)
         return True
+
+    async def _send_jev_preview(
+        self, message: GuildMessage, regex_type: HelpMessageEnum, result: JevHelpModel
+    ) -> None:
+        if result.help_type is HelpMessageEnum.NONE:
+            return
+
+        # TODO(leah): Add when production is ready
+        # if result.confidence < 0.9:
+        #     return
+
+        jev_label = result.help_type.name
+        regex_label = regex_type.name
+        reply = (
+            f'**Jev**: {jev_label} (confidence: {result.confidence:.0%}) '
+            f'| **Regex**: {regex_label}'
+        )
+        await self._send_reply(reply, message, force_test=True)
 
     @staticmethod
     def _member_has_level_role(member: discord.Member) -> bool:
@@ -266,7 +271,13 @@ class Fleasion(commands.Cog):
 
 
 async def setup(bot: MoistBot) -> None:
-    if bot.is_ready():
-        deep_reload(tracking)
-
     await bot.add_cog(Fleasion(bot))
+
+
+async def teardown(_bot: MoistBot) -> None:
+    try:
+        deep_reload(tracking)
+        deep_reload(fleasion)
+    except Exception:
+        log.exception('Failed to reload tracking or Fleasion services during teardown')
+        raise

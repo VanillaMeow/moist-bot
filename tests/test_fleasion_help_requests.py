@@ -1,6 +1,6 @@
 import pytest
 
-from moist_bot.cogs.fleasion import HelpMessageClassifier, HelpMessageEnum
+from moist_bot.cogs.fleasion import HelpMessageEnum, RegexHelpClassifier
 
 
 @pytest.mark.parametrize(
@@ -73,7 +73,7 @@ from moist_bot.cogs.fleasion import HelpMessageClassifier, HelpMessageEnum
     ],
 )
 def test_detects_help_requests(content: str) -> None:
-    assert HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](content)
+    assert RegexHelpClassifier.BINDINGS[HelpMessageEnum.HELP](content)
 
 
 @pytest.mark.parametrize(
@@ -102,14 +102,14 @@ def test_detects_help_requests(content: str) -> None:
     ],
 )
 def test_greeting_prefixes(greeting: str) -> None:
-    assert HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](
+    assert RegexHelpClassifier.BINDINGS[HelpMessageEnum.HELP](
         f'{greeting} how do i use fleasion'
     )
-    assert HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](
+    assert RegexHelpClassifier.BINDINGS[HelpMessageEnum.HELP](
         f'{greeting.upper()}, is fleasion working?'
     )
-    assert not HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](greeting)
-    assert not HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](
+    assert not RegexHelpClassifier.BINDINGS[HelpMessageEnum.HELP](greeting)
+    assert not RegexHelpClassifier.BINDINGS[HelpMessageEnum.HELP](
         f'{greeting} that was a fun game'
     )
 
@@ -144,7 +144,7 @@ def test_greeting_prefixes(greeting: str) -> None:
     ],
 )
 def test_ignores_conversation(content: str) -> None:
-    assert not HelpMessageClassifier.BINDINGS[HelpMessageEnum.HELP](content)
+    assert not RegexHelpClassifier.BINDINGS[HelpMessageEnum.HELP](content)
 
 
 @pytest.mark.parametrize(
@@ -177,7 +177,7 @@ def test_ignores_conversation(content: str) -> None:
     ],
 )
 def test_detects_config_requests(content: str) -> None:
-    assert HelpMessageClassifier.BINDINGS[HelpMessageEnum.CONFIG](content)
+    assert RegexHelpClassifier.BINDINGS[HelpMessageEnum.CONFIG](content)
 
 
 @pytest.mark.parametrize(
@@ -208,4 +208,4 @@ def test_detects_config_requests(content: str) -> None:
     ],
 )
 def test_does_not_redirect_config_discussion(content: str) -> None:
-    assert not HelpMessageClassifier.BINDINGS[HelpMessageEnum.CONFIG](content)
+    assert not RegexHelpClassifier.BINDINGS[HelpMessageEnum.CONFIG](content)

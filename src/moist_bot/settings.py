@@ -5,6 +5,7 @@ __all__ = ('settings',)
 from functools import cached_property
 
 from discord import Object
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from moist_bot.constants import DB_PATH
@@ -20,6 +21,10 @@ class Settings(BaseSettings):
     # Bot
     token: str = ''
     fleabot_token: str = ''
+
+    # Jev classification
+    jev_token: SecretStr = SecretStr('')
+    jev_model: str = 'jev-latest'
 
     # Discord
     test_guild_id: int = 294545830742982656
