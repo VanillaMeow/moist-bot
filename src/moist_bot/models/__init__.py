@@ -26,6 +26,7 @@ from .honeypot import (
 )
 from .runtime import RESTART_NOTICE_ID, RestartNotice
 from .socket_event_stats import SocketEventStats
+from .spam import GuildSpamConfig, GuildSpamExemption, SpamIncident
 from .tracker_state import TrackerState
 
 __all__ = (
@@ -47,10 +48,13 @@ __all__ = (
     'GuildChannelPolicyChannel',
     'GuildChannelPolicyPermission',
     'GuildHoneypotConfig',
+    'GuildSpamConfig',
+    'GuildSpamExemption',
     'HoneypotGuildStats',
     'HoneypotIncident',
     'HoneypotUserStats',
     'RestartNotice',
     'SocketEventStats',
+    'SpamIncident',
     'TrackerState',
 )

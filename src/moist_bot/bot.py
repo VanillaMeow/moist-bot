@@ -17,7 +17,7 @@ from discord.ext import commands
 from .constants import COGS_FOLDER_PATH, DATETIME_NEVER, ROOT_PACKAGE
 from .db import create_engine, create_session_maker
 from .models import BlocklistScope, BlocklistSource
-from .services import BlocklistManager, HoneypotManager
+from .services import BlocklistManager, HoneypotManager, SpamManager
 from .settings import settings
 from .types import SoftbanResult
 from .utils.context import Context, MoistCommandTree
@@ -95,6 +95,7 @@ class MoistBot(commands.Bot):
     db_session_maker: async_sessionmaker[AsyncSession]
     blocklist: BlocklistManager
     honeypot: HoneypotManager
+    spam: SpamManager
     spam_control: commands.CooldownMapping[Message]
 
     reminder = None
@@ -132,6 +133,7 @@ class MoistBot(commands.Bot):
         # Services
         self.blocklist = BlocklistManager(self)
         self.honeypot = HoneypotManager(self)
+        self.spam = SpamManager(self)
         self.spam_control = commands.CooldownMapping['Message'].from_cooldown(
             rate=10,
             per=12.0,
@@ -161,6 +163,7 @@ class MoistBot(commands.Bot):
             asyncio.create_task(self.load_cogs()),
             asyncio.create_task(self.blocklist.load()),
             asyncio.create_task(self.honeypot.load()),
+            asyncio.create_task(self.spam.load()),
         ]
         await asyncio.gather(*tasks)
 
@@ -171,6 +174,7 @@ class MoistBot(commands.Bot):
 
     async def close(self) -> None:
         self.is_shutting_down.set()
+        await self.spam.close()
 
         if hasattr(self, 'session') and not self.session.closed:
             await self.session.close()
@@ -222,6 +226,32 @@ class MoistBot(commands.Bot):
             command.reset_cooldown(ctx)
 
         return await super().can_run(ctx, call_once=call_once)
+
+    async def on_message(self, message: Message) -> None:
+        """Run guild spam moderation before considering a prefix command.
+
+        Parameters
+        ----------
+        message : Message
+            Message received from Discord's gateway.
+        """
+
+        if self.is_shutting_down.is_set():
+            return
+
+        if not await self.spam.handle_message(message):
+            await self.process_commands(message)
+
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
+        """Remove a departed guild's spam configuration while retaining incidents.
+
+        Parameters
+        ----------
+        guild : discord.Guild
+            Guild the bot has left or been removed from.
+        """
+
+        await self.spam.config.delete(guild.id)
 
     async def process_commands(self, message: Message, /) -> None:
         """Resolve, filter, spam-check, and invoke a prefix command."""
