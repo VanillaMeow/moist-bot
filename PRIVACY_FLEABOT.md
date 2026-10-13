@@ -1,49 +1,62 @@
 # Fleabot privacy policy
 
+Last updated: 13 October 2026
+
 ## Who operates Fleabot
 
-Fleabot is a private moderation and utility bot operated for the Fleasion Discord server. It is not available for public invitation or installation in other servers. Leah is its sole developer and maintainer.
+Fleabot is a private moderation and utility bot for the Fleasion Discord server. Leah is its sole developer and maintainer. This policy covers Leah's operation of Fleabot, including people whose messages or server activity the bot processes.
 
-For privacy questions or requests to access, correct, or delete your data, contact [leah.catgirlnyah@gmail.com](mailto:leah.catgirlnyah@gmail.com).
+For privacy questions or requests, contact [leah.catgirlnyah@gmail.com](mailto:leah.catgirlnyah@gmail.com).
 
-Its [source code](https://github.com/VanillaMeow/moist-bot) is public, but this policy concerns Leah's operation of Fleabot, not independent copies run by other people.
+The policy is available in Fleabot's [public GitHub repository](https://github.com/VanillaMeow/moist-bot). It does not cover independent copies of the bot operated by other people.
 
-## Information about you
+## Information Fleabot uses
 
-Fleabot can receive your Discord user ID, username, server membership and roles, and messages in channels it can access. A Discord user ID identifies your account even if you change your username.
+Fleabot receives information from Discord, including account identifiers and profile information, server membership and roles, and messages in channels it can access. Message information can include text, attachments, embedded content, and when and where a message was sent.
 
-Fleabot uses and stores information about you for the following purposes:
+Fleabot uses this information for:
 
-- Moderation: if you trigger the honeypot, Fleabot keeps a record linked to your account, including when and where it happened, up to 500 characters of the message, the number of attachments, and the action taken. This preserves evidence and helps staff identify repeated incidents. Command restrictions and their reasons may also be recorded against your account.
-- Commands and utilities: Fleabot reads commands and relevant messages to respond to requests and remove messages matching staff-selected filters. It records which commands you use, when and where you use them, and whether they succeed. It also records who changes moderation settings.
-- Troubleshooting: diagnostic logs can contain your account information and full messages received by the bot, including messages that did not trigger the honeypot. The 500-character incident limit does not apply to these logs.
+- **Server moderation.** Detecting activity in the server's honeypot, applying staff-selected message filters and command restrictions, and keeping evidence and action history for staff review and identifying repeated abuse.
+- **Help and commands.** Responding to requests, directing help questions to appropriate channels, detecting reposted help messages, and using recent message activity to avoid unnecessary or repeated replies.
+- **Server reporting.** Keeping command usage information and statistics, recording changes to moderation settings, and checking whether people with previous moderation incidents are currently back in the server.
+- **Reliability and troubleshooting.** Investigating errors and maintaining the bot. Troubleshooting logs can contain account information and complete messages, including messages unrelated to a moderation incident.
 
-The honeypot acts automatically to contain spam from compromised accounts. Posting in its clearly warned channel can remove you from the server and delete recent messages. Repeated incidents can result in a ban without an automatic unban.
+Some features process ordinary server messages without a command or mention of Fleabot. Automatic moderation can remove messages, remove an account from the server, or ban an account. Fleabot does not currently offer an individual opt-out from moderation processing or troubleshooting logging.
 
-Fleabot does not currently provide an individual opt-out from moderation processing or diagnostic logging. Privacy requests can be made through the email address above.
+If you contact Leah about privacy, the contact information and request details you provide are used to respond to your request and, where necessary, verify your identity.
 
-## Who can access your information
+Fleabot's message data is not used to train machine learning or AI models.
 
-Fleabot stores information on infrastructure hosted by Amazon Web Services Lightsail. Leah is the only person with administrative access to the bot's stored records and diagnostic logs.
+## Storage and access
 
-Moderation evidence is also posted to the server's configured log channel and is available to authorized staff through incident-history commands. People who can access a channel can see bot responses posted there, including command and statistics responses.
+Fleabot's stored information is hosted by Amazon Web Services in the United States. Stored data, including logs and backups, is encrypted at rest. Leah is the only person with administrative access to the bot's stored records.
+
+Authorized server staff can access moderation evidence and relevant history through the bot and the server's moderation channels. Messages may be quoted or forwarded within the server for support, moderation, or testing. People who can access a channel can see information Fleabot posts there, including replies, evidence, and statistics.
+
+Discord processes information on its service under its own [privacy policy](https://discord.com/privacy).
 
 ## How long information is kept
 
-Honeypot records, including message excerpts and previous trigger counts, are kept indefinitely to preserve moderation evidence and identify repeated incidents.
+Moderation records, command history, and related statistics have no automatic expiry and remain until manually removed. They support review of past activity and repeated abuse. Leah removes information when it is no longer needed, when a verified deletion request must be fulfilled, or when Fleabot stops operating, unless retention is required by law. Moderation settings and command restrictions remain until changed or removed.
 
-Command usage history has no automatic expiry. Command restrictions and moderation settings remain until changed or removed.
+Short-lived information used for help routing, repost detection, and reply controls expires and is removed through routine cleanup. Copies included in troubleshooting logs or backups follow the retention rules for those copies.
 
-Diagnostic log files rotate daily, retaining the current file and up to 30 older files for each log. This is separate from the moderation records described above.
+Troubleshooting logs are kept on a 30-day rotation. Information covered by a verified deletion request is deleted or redacted from active records and affected troubleshooting logs without relying solely on that rotation.
 
-Messages Fleabot posts to Discord remain there until deleted through Discord or by someone with the necessary permissions.
+Daily backups are kept on a seven-day rotation and automatically deleted as they expire. Information removed from active storage may remain in an existing backup until that backup expires. These remaining copies are kept out of normal use. If a backup is restored before it expires, applicable deletions are reapplied before the restored data is brought back into use.
+
+Messages Fleabot posts to Discord remain until deleted through Discord or by someone with the necessary permissions. Removing information from the bot's storage does not automatically remove messages already posted to Discord.
 
 ## Privacy requests
 
-To ask about, access, correct, or request deletion of your information, email [leah.catgirlnyah@gmail.com](mailto:leah.catgirlnyah@gmail.com) with your Discord user ID and a description of your request. Do not send your password or Discord token.
+You can request access to, correction of, or deletion of your information by emailing [leah.catgirlnyah@gmail.com](mailto:leah.catgirlnyah@gmail.com). Include your Discord user ID and a description of your request. Do not send your password or Discord token.
 
-Requests are handled manually by the maintainer. The maintainer may ask for information needed to verify that the request concerns your account.
+Leah handles requests manually and aims to respond promptly, normally within one month of receiving a request. Leah may ask for information needed to verify that the request concerns your account. If more time is needed or a request cannot be fulfilled in full, Leah will explain the reason and next steps within that period.
+
+Deletion requests cover information Fleabot controls, including relevant records, user-linked statistics, troubleshooting logs, and bot-posted messages. Access to and deletion of backup copies follow the backup rules above. Privacy requests are handled in accordance with applicable law and Discord's Developer Terms of Service.
+
+Privacy requests concern information Fleabot controls. Requests about information held independently by Discord or other server members must be directed to the relevant person or service.
 
 ## Changes
 
-Updates to this policy will be published at this location when Fleabot's data handling changes.
+Updates will be published here with a revised last-updated date when Fleabot's data handling changes.
