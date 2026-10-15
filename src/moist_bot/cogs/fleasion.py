@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
-from functools import partial
 from typing import TYPE_CHECKING, cast
 
 import discord
 from discord.ext import commands
+from pydantic import ValidationError
+from typesafe_sdk import TypeSafeError
 
 from moist_bot.services import fleasion, tracking
 from moist_bot.services.fleasion import (
@@ -18,7 +19,6 @@ from moist_bot.utils.reload import deep_reload
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
-    from moist_bot.services.fleasion import JevHelpModel
     from moist_bot.types import GuildMessage
     from moist_bot.utils.context import Context
 
@@ -68,7 +68,7 @@ class Fleasion(commands.Cog):
         self.tracking = tracking.TrackingService(bot, namespace, config=config)
         self.is_testing: bool = False
 
-        # Jev Experimental
+        # Jev classification
         self._jev_classifier = JevHelpClassifier(
             settings.jev_token.get_secret_value(), settings.jev_model
         )
@@ -206,15 +206,18 @@ class Fleasion(commands.Cog):
             Whether the message was handled.
         """
         # Main criteria
+        # First try the regex classifier, then query Jev
         help_type = RegexHelpClassifier.classify(message.content)
-        self._jev_classifier.classify_background(
-            message.content,
-            on_result=partial(self._send_jev_preview, message, help_type),
-            name=f'jev-preview:{message.id}',
-        )
-
         if help_type is HelpMessageEnum.NONE:
-            return False
+            try:
+                result = await self._jev_classifier.classify(message.content)
+            except RuntimeError, TypeSafeError, ValidationError:
+                log.exception(f'Jev classification failed for message {message.id}')
+                return False
+
+            if result.help_type is HelpMessageEnum.NONE or result.confidence < 0.89:
+                return False
+            help_type = result.help_type
 
         if await self.tracking.check_help_cooldown(message):
             return True
@@ -226,35 +229,15 @@ class Fleasion(commands.Cog):
         await self._send_reply(reply, message)
         return True
 
-    async def _send_jev_preview(
-        self, message: GuildMessage, regex_type: HelpMessageEnum, result: JevHelpModel
-    ) -> None:
-        if result.help_type is HelpMessageEnum.NONE:
-            return
-
-        # TODO(leah): Add when production is ready
-        # if result.confidence < 0.9:
-        #     return
-
-        jev_label = result.help_type.name
-        regex_label = regex_type.name
-        reply = (
-            f'**Jev**: {jev_label} (confidence: {result.confidence:.0%}) '
-            f'| **Regex**: {regex_label}'
-        )
-        await self._send_reply(reply, message, force_test=True)
-
     @staticmethod
     def _member_has_level_role(member: discord.Member) -> bool:
         """Return whether the user has a level role."""
         # Level role (e.g. "Meow [L1]")
         return any('[' in role.name for role in member.roles)
 
-    async def _send_reply(
-        self, reply: str, message: discord.Message, *, force_test: bool = False
-    ) -> None:
+    async def _send_reply(self, reply: str, message: discord.Message) -> None:
         """Send a test preview with the original message, or reply to the user."""
-        if self.is_testing or force_test:
+        if self.is_testing:
             await self.test_channel.send(reply)
             await message.forward(self.test_channel)
             return

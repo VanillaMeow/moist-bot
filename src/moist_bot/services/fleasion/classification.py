@@ -168,7 +168,9 @@ class JevHelpClassifier:
         self._inflight: dict[str, asyncio.Task[JevHelpModel]] = {}
 
         if not api_key:
-            log.warning('Jev previews disabled because JEV_TOKEN is not configured.')
+            log.warning(
+                'Jev classification disabled because JEV_TOKEN is not configured.'
+            )
             return
 
         try:
@@ -179,7 +181,7 @@ class JevHelpClassifier:
                 retry=RetryPolicy(),
             )
         except TypeSafeError:
-            log.exception('Jev previews could not start.')
+            log.exception('Jev classification could not start.')
 
     def classify_background(
         self, content: str, *, on_result: OnJevResult, name: str
