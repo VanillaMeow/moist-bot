@@ -23,7 +23,6 @@ FLEABOT_EXTENSIONS: Final = (
     'blocklist',
     'fleasion',
     'honeypot',
-    'spam',
     'owner',
     'stats',
     'purge',
