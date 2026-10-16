@@ -56,9 +56,9 @@ class Fleasion(commands.Cog):
 
         namespace = 'fleabot:fleasion' if settings.is_fleabot else 'moistbot:fleasion'
         config = tracking.TrackingConfig(
-            activity_window=120 if settings.is_fleabot else 1,
+            activity_window=240 if settings.is_fleabot else 1,
             activity_threshold=2,
-            help_window=120 if settings.is_fleabot else 1,
+            help_window=240 if settings.is_fleabot else 1,
             help_skip_count=2,
             repost_window=600,
             repost_similarity=0.9,
