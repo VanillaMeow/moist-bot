@@ -215,9 +215,9 @@ class Fleasion(commands.Cog):
                 log.exception(f'Jev classification failed for message {message.id}')
                 return False
 
-            if result.help_type is HelpMessageEnum.NONE or result.confidence < 0.89:
-                return False
             help_type = result.help_type
+            if help_type is HelpMessageEnum.NONE or result.confidence < 0.89:
+                return False
 
         if await self.tracking.check_help_cooldown(message):
             return True
