@@ -4,6 +4,7 @@ from random import randint
 from typing import TYPE_CHECKING
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 if TYPE_CHECKING:
@@ -25,7 +26,8 @@ class Pp(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{AUBERGINE}')
 
-    @commands.command()
+    @commands.hybrid_command()
+    @app_commands.describe(user='Whose pp to measure; defaults to you')
     @commands.cooldown(rate=1, per=10, type=commands.BucketType.member)
     async def pp(self, ctx: Context, *, user: discord.User = commands.Author):
         """Measure your pp."""

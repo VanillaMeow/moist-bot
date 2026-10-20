@@ -6,11 +6,33 @@ from typing import TYPE_CHECKING, overload
 from urllib import error as url_error
 from urllib.parse import urlparse
 
+from discord.ext import commands
+
 if TYPE_CHECKING:
     from moist_bot.utils.context import Context
 
 
 type N = int | float
+
+
+class Snowflake(commands.Converter[int]):
+    async def convert(
+        self,
+        ctx: commands.Context[commands.Bot | commands.AutoShardedBot],
+        argument: str,
+    ) -> int:
+        try:
+            value = int(argument)
+        except ValueError:
+            value = 0
+
+        if not 0 < value <= 18446744073709551615:
+            param = ctx.current_parameter
+            name = param.name if param else 'argument'
+            msg = f'{name} expected a Discord ID, not {argument!r}'
+            raise commands.BadArgument(msg)
+
+        return value
 
 
 @overload

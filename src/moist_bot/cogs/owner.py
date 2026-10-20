@@ -123,6 +123,17 @@ class Owner(commands.Cog):
         return f'```py\n{e.text}{"^":>{e.offset}}\n{e.__class__.__name__}: {e}```'
 
     @commands.command(hidden=True)
+    @commands.cooldown(1, 30.0, type=commands.BucketType.member)
+    async def cud(self, ctx: Context) -> None:
+        """pls no spam"""
+
+        for i in range(3):
+            await ctx.send(str(3 - i))
+            await asyncio.sleep(1)
+
+        await ctx.send('go')
+
+    @commands.command(hidden=True)
     async def restart(self, ctx: Context) -> None:
         """Restart the bot process."""
 

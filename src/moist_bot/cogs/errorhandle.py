@@ -54,7 +54,11 @@ async def handle_cooldown_error(
 
     # Check if an existing cooldown has expired
     author_cooldown = ctx.bot.cooldowns.get(cooldown_key)
-    if author_cooldown is not None and utcnow < author_cooldown:
+    if (
+        ctx.interaction is None
+        and author_cooldown is not None
+        and utcnow < author_cooldown
+    ):
         return
 
     # Set a new cooldown

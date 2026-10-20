@@ -4,6 +4,7 @@ import time
 from typing import TYPE_CHECKING, Annotated
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from discord.utils import escape_mentions
 
@@ -24,7 +25,7 @@ class Miscellaneous(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{SPEECH BALLOON}')
 
-    @commands.command()
+    @commands.hybrid_command()
     @commands.cooldown(rate=1, per=3, type=commands.BucketType.member)
     async def ping_ws(self, ctx: Context):
         """Discord websocket protocol latency."""
@@ -32,7 +33,8 @@ class Miscellaneous(commands.Cog):
             f'Discord websocket latency is {round(self.client.latency * 1000)}ms'
         )
 
-    @commands.command()
+    @commands.hybrid_command()
+    @app_commands.describe(msg='Message to include with the latency result')
     @commands.cooldown(rate=1, per=3, type=commands.BucketType.member)
     async def ping(
         self, ctx: Context, *, msg: Annotated[str, escape_mentions] = 'Pong!'
@@ -43,16 +45,20 @@ class Miscellaneous(commands.Cog):
         ping = (time.monotonic() - before) * 1000
         await message.edit(content=f'{msg} in {int(ping)}ms')
 
-    @commands.command()
+    @commands.hybrid_command()
+    @app_commands.describe(msg='Message for the bot to send')
     @has_guild_permissions_or_dm(manage_messages=True)
     @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def say(self, ctx: Context, *, msg: Annotated[str, escape_mentions]):
+        """Send a message through the bot."""
         await ctx.send(msg)
 
-    @commands.command()
+    @commands.hybrid_command()
+    @app_commands.describe(msg='Message to repeat with a stutter')
     @has_guild_permissions_or_dm(manage_messages=True)
     @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def stutter(self, ctx: Context, *, msg: Annotated[str, escape_mentions]):
+        """Repeat a message with a stutter."""
         stuttered_msg = '  '.join(
             f'{word[0]}-{word[0]}-{word}' for word in msg.split(' ')
         )

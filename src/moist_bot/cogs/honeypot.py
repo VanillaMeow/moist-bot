@@ -5,6 +5,7 @@ from inspect import cleandoc
 from typing import TYPE_CHECKING, cast
 
 import discord
+from discord import app_commands
 from discord.ext import commands, menus
 from discord.utils import utcnow
 from sqlmodel import col
@@ -360,13 +361,19 @@ class Honeypot(commands.Cog):
     async def on_guild_remove(self, guild: discord.Guild) -> None:
         await self.bot.honeypot.config.delete(guild_id=guild.id)
 
-    @commands.group(name='honeypot', invoke_without_command=True)
+    @commands.hybrid_group(name='honeypot', fallback='help')
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_messages=True)
     @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def honeypot(self, ctx: GuildContext) -> None:
         """Manage this server's honeypot."""
         await ctx.send_help(ctx.command)
 
     @honeypot.command(name='set')
+    @app_commands.describe(
+        honeypot_channel='Trap channel where sending a message triggers a ban',
+        log_channel='Channel for honeypot moderation alerts',
+    )
     @commands.has_guild_permissions(manage_guild=True)
     @commands.cooldown(rate=1, per=15, type=commands.BucketType.guild)
     async def honeypot_set(
@@ -451,7 +458,7 @@ class Honeypot(commands.Cog):
             )
             return
 
-        # Send the alert message
+        await ctx.typing()
 
         if config.alert_message_id is not None and not flags.force:
             message, can_continue = await edit_honeypot_alert_message(
@@ -620,6 +627,7 @@ class Honeypot(commands.Cog):
         )
 
     @honeypot.command(name='history', aliases=['logs', 'incidents'])
+    @app_commands.describe(user='Show incidents for this user; omit to show all users')
     @commands.cooldown(rate=1, per=5, type=commands.BucketType.member)
     async def honeypot_history(
         self,

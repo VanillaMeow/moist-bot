@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import discord
 import psutil
+from discord import app_commands
 from discord.ext import commands, menus
 from jishaku.modules import package_version
 
@@ -335,7 +336,8 @@ class Meta(commands.Cog):
 
         self.old_help_command: commands.HelpCommand | None = bot.help_command
         bot.help_command = PaginatedHelpCommand()
-        bot.help_command.cog = self
+        # Keep the help formatter available to Context.send_help
+        bot.remove_command('help')
         self.process = psutil.Process()
 
     @property
@@ -351,7 +353,25 @@ class Meta(commands.Cog):
         if isinstance(error, commands.BadArgument):
             await ctx.reply(str(error))
 
-    @commands.command()
+    @commands.hybrid_command(name='help')
+    @app_commands.describe(
+        command='Command or category to explain; omit for the help menu'
+    )
+    @commands.cooldown(rate=1, per=3, type=commands.BucketType.member)
+    async def help_command(self, ctx: Context, *, command: str | None = None) -> None:
+        """Show help about the bot, a command, or a category."""
+        helper = ctx.bot.help_command
+        if helper is None:
+            return
+
+        helper = helper.copy()
+        helper.context = ctx
+        await helper.command_callback(ctx, command=command)
+
+    @commands.hybrid_command()
+    @app_commands.describe(
+        characters='Characters to look up Unicode names and codes for'
+    )
     @commands.cooldown(rate=1, per=8, type=commands.BucketType.member)
     @has_guild_permissions_or_dm(manage_messages=True)
     async def charinfo(self, ctx: Context, *, characters: str):
@@ -370,9 +390,12 @@ class Meta(commands.Cog):
             return await ctx.reply('Output too long to display.')
         await ctx.reply(msg)
 
-    @commands.command(name='health', aliases=['about'])
+    @commands.hybrid_command(name='health', aliases=['about'])
     async def _bot_stats(self, ctx: Context):
         """Various bot stat monitoring tools."""
+
+        if ctx.interaction is not None:
+            await ctx.defer()
 
         HEALTHY = discord.Color(value=0x43B581)  # ruff: ignore[non-lowercase-variable-in-function]
         UNHEALTHY = discord.Color(value=0xF04947)  # ruff: ignore[non-lowercase-variable-in-function]
@@ -504,18 +527,6 @@ class Meta(commands.Cog):
 
         embed.description = '\n'.join(description)
         await ctx.reply(embed=embed)
-
-    @commands.command(hidden=True)
-    @has_guild_permissions_or_dm(manage_messages=True)
-    @commands.cooldown(1, 30.0, type=commands.BucketType.member)
-    async def cud(self, ctx: Context):
-        """pls no spam"""
-
-        for i in range(3):
-            await ctx.send(str(3 - i))
-            await asyncio.sleep(1)
-
-        await ctx.send('go')
 
 
 async def setup(bot: MoistBot) -> None:

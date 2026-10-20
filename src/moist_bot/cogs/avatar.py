@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 if TYPE_CHECKING:
@@ -38,7 +39,8 @@ class Avatar(commands.Cog):
         return discord.PartialEmoji(name='\U0001f465')
 
     @commands.cooldown(rate=1, per=2, type=commands.BucketType.member)
-    @commands.command()
+    @commands.hybrid_command()
+    @app_commands.describe(user='Whose avatar to display; defaults to you')
     async def avatar(self, ctx: Context, *, user: discord.Member = commands.Author):
         """Display a user's avatar."""
 

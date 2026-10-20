@@ -183,8 +183,10 @@ class PetPet(commands.Cog):
         return discord.PartialEmoji(name='\N{WAVING HAND SIGN}')
 
     @commands.cooldown(rate=1, per=4, type=commands.BucketType.member)
-    @app_commands.describe(user='The target user.')
-    @commands.hybrid_command(name='petpet', description='Petpet')
+    @commands.hybrid_command(
+        name='petpet', description='Make a petpet animation from an avatar or image'
+    )
+    @app_commands.describe(user='Whose avatar to pet; defaults to you')
     async def petpet(self, ctx: Context, user: discord.User = commands.Author):
         await ctx.typing()
 

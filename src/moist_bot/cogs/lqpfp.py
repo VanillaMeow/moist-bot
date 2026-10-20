@@ -4,6 +4,7 @@ import io
 from typing import TYPE_CHECKING
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from PIL import Image
 
@@ -50,9 +51,13 @@ class LowQualityProfilePicture(commands.Cog):
         return discord.PartialEmoji(name='\N{FRAME WITH PICTURE}')
 
     @commands.cooldown(rate=1, per=2, type=commands.BucketType.member)
-    @commands.command()
+    @commands.hybrid_command()
+    @app_commands.describe(
+        user='Whose avatar to pixelate; defaults to you',
+        factor='Pixelation strength from 1 to 999999999; higher means fewer details',
+    )
     async def lqpfp(
-        self, ctx: Context, user: discord.User = commands.Author, factor: float = 1
+        self, ctx: Context, user: discord.User = commands.Author, factor: float = 1.0
     ):
         """Display a low quality version of a user's avatar."""
 

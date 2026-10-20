@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from pydantic import ValidationError
 
@@ -12,6 +13,7 @@ from moist_bot.services.spam.types import (
     ExemptionKind,
     SpamRule,
 )
+from moist_bot.utils.converters import Snowflake
 
 if TYPE_CHECKING:
     from moist_bot.bot import MoistBot
@@ -25,19 +27,41 @@ class SpamSettingFlags(commands.FlagConverter, prefix='--', delimiter=' '):
     Timeout and cooldown values are in seconds; cleanup controls burst deletion.
     """
 
-    action: Literal['alert', 'timeout', 'ban'] | None = commands.flag(default=None)
-    timeout_seconds: int | None = commands.flag(name='timeout', default=None)
-    delete_burst: bool | None = commands.flag(name='cleanup', default=None)
-    action_cooldown: int | None = commands.flag(name='cooldown', default=None)
-    log_channel: discord.TextChannel | None = commands.flag(name='log', default=None)
+    action: Literal['alert', 'timeout', 'ban'] | None = commands.flag(
+        default=None, description='Action to take when spam is detected'
+    )
+    timeout_seconds: int | None = commands.flag(
+        name='timeout', default=None, description='Timeout duration in seconds'
+    )
+    delete_burst: bool | None = commands.flag(
+        name='cleanup',
+        default=None,
+        description='Delete the messages that triggered detection',
+    )
+    action_cooldown: int | None = commands.flag(
+        name='cooldown',
+        default=None,
+        description='Seconds between actions against the same user',
+    )
+    log_channel: discord.TextChannel | None = commands.flag(
+        name='log',
+        default=None,
+        description='Channel for spam detection and action logs',
+    )
 
 
 class SpamRuleFlags(commands.FlagConverter, prefix='--', delimiter=' '):
     """Parse a rule's enable switch, message allowance, and period in seconds."""
 
-    enabled: bool | None = commands.flag(default=None)
-    count: int | None = commands.flag(default=None)
-    period: float | None = commands.flag(default=None)
+    enabled: bool | None = commands.flag(
+        default=None, description='Whether this rule checks messages'
+    )
+    count: int | None = commands.flag(
+        default=None, description='Messages allowed within the rule period'
+    )
+    period: float | None = commands.flag(
+        default=None, description='Rule period in seconds'
+    )
 
 
 class Spam(commands.Cog):
@@ -119,7 +143,9 @@ class Spam(commands.Cog):
         except ValueError as exc:
             raise commands.BadArgument(str(exc)) from exc
 
-    @commands.group(name='spam', invoke_without_command=True)
+    @commands.hybrid_group(name='spam')
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_guild=True)
     async def spam(self, ctx: GuildContext) -> None:
         """Show the server's spam settings."""
 
@@ -210,6 +236,9 @@ class Spam(commands.Cog):
         await self.show_config(ctx)
 
     @spam.command(name='rule')
+    @app_commands.describe(
+        rule='Spam rule to configure; omitted settings stay unchanged'
+    )
     async def spam_rule(
         self,
         ctx: GuildContext,
@@ -234,7 +263,7 @@ class Spam(commands.Cog):
         await self.update_config(ctx, changes=supplied, rule=name)
         await self.show_config(ctx)
 
-    @spam.group(name='exempt', invoke_without_command=True)
+    @spam.group(name='exempt')
     async def spam_exempt(self, ctx: GuildContext) -> None:
         """Show explicit user, role, and channel exemptions."""
 
@@ -264,6 +293,10 @@ class Spam(commands.Cog):
         await self.show_exemptions(ctx)
 
     @spam_exempt.command(name='add')
+    @app_commands.describe(
+        kind='Type of user, role, or channel to exempt',
+        entity='ID, mention, or name of the user, role, or channel to exempt',
+    )
     async def spam_exempt_add(
         self,
         ctx: GuildContext,
@@ -302,11 +335,15 @@ class Spam(commands.Cog):
         await ctx.reply(f'Exempted {kind} {entity_id}. Detection state cleared.')
 
     @spam_exempt.command(name='remove')
+    @app_commands.describe(
+        kind='Type of exemption to remove',
+        entity_id='Discord ID shown by the exemption list',
+    )
     async def spam_exempt_remove(
         self,
         ctx: GuildContext,
         kind: Literal['user', 'role', 'channel'],
-        entity_id: commands.Range[int, 1, 18446744073709551615],
+        entity_id: Annotated[int, Snowflake],
     ) -> None:
         """Remove an explicit exemption using the ID shown by ``spam exempt list``."""
 
@@ -323,6 +360,7 @@ class Spam(commands.Cog):
         )
 
     @spam.command(name='incidents')
+    @app_commands.describe(limit='Number of recent spam detections to show (1-50)')
     async def spam_incidents(
         self, ctx: GuildContext, limit: commands.Range[int, 1, 50] = 10
     ) -> None:

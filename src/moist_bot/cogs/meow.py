@@ -4,6 +4,7 @@ from random import choices, randint
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, cast
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 if TYPE_CHECKING:
@@ -128,7 +129,8 @@ class Meow(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{CAT FACE}')
 
-    @commands.command()
+    @commands.hybrid_command()
+    @app_commands.describe(random_size='Number of meow words; omit for a random amount')
     @commands.cooldown(rate=1, per=300, type=commands.BucketType.member)
     async def meow(self, ctx: Context, random_size: int | None = None):
         """Generate a random meow."""

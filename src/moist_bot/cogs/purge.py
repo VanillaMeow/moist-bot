@@ -9,6 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from moist_bot.utils.converters import Snowflake
 from moist_bot.utils.formats import plural
 from moist_bot.utils.message_purge import ChannelPurger
 
@@ -16,27 +17,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from moist_bot.bot import MoistBot
-    from moist_bot.utils.context import Context, GuildContext
+    from moist_bot.utils.context import GuildContext
 
 
 log = logging.getLogger('discord.' + __name__)
 
 
 # Flag converters
-
-
-class Snowflake:
-    """Converter that accepts a raw Discord snowflake ID."""
-
-    @classmethod
-    async def convert(cls, ctx: Context, argument: str) -> int:
-        try:
-            return int(argument)
-        except ValueError:
-            param = ctx.current_parameter
-            name = param.name if param else 'argument'
-            msg = f'{name} expected a Discord ID, not {argument!r}'
-            raise commands.BadArgument(msg) from None
 
 
 class PurgeFlags(
@@ -436,7 +423,8 @@ class Purge(commands.Cog):
             ctx, limit, check=lambda m: not m.pinned, flags=flags
         )
 
-    @purge.command(name='after', with_app_command=False)
+    @purge.command(name='after')
+    @app_commands.describe(message='Message ID or link to start deleting after')
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
     async def purge_after(self, ctx: GuildContext, message: discord.Message):
         """Remove all messages after a given message ID or link (up to 2000)."""
@@ -454,7 +442,11 @@ class Purge(commands.Cog):
 
         await self._send_result(ctx, deleted)
 
-    @purge.command(name='before', with_app_command=False)
+    @purge.command(name='before')
+    @app_commands.describe(
+        message='Message ID or link to stop deleting before',
+        limit='Number of messages to remove (1-2000)',
+    )
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
     async def purge_before(
         self, ctx: GuildContext, message: discord.Message, limit: int = 100
@@ -462,7 +454,11 @@ class Purge(commands.Cog):
         """Remove messages before a given message ID or link."""
         await self._validate_and_purge(ctx, limit, before=message)
 
-    @purge.command(with_app_command=False)
+    @purge.command()
+    @app_commands.describe(
+        start='Message ID or link at one end of the range; excluded from deletion',
+        end='Message ID or link at the other end of the range; excluded from deletion',
+    )
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
     async def between(
         self,

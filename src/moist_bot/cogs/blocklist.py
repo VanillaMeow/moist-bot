@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from jishaku.paginators import PaginatorInterface, WrappedPaginator
 
@@ -78,6 +79,30 @@ class Blocklist(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{NO ENTRY SIGN}')
 
+    async def cog_check(self, ctx: Context) -> bool:  # type: ignore[reportIncompatibleMethodOverride]
+        command = ctx.command
+        if command is None:
+            return True
+
+        # Hybrid subcommands do not invoke their parent callbacks or checks
+        branch = next(
+            (
+                parent.name
+                for parent in (command, *command.parents)
+                if parent.parent is self.blocklist
+            ),
+            None,
+        )
+        if branch in {'global', 'guild'}:
+            if not await self.bot.is_owner(ctx.author):
+                raise commands.NotOwner('Only bot owners can use this command')
+        elif branch in {'member', 'permission', 'channel', 'policy'}:
+            if ctx.guild is None:
+                raise commands.NoPrivateMessage
+            return await can_manage_guild_blocklist(ctx)
+
+        return True
+
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild) -> None:
         """Leave fully blocklisted guilds and rely on implicit locked policy."""
@@ -133,20 +158,22 @@ class Blocklist(commands.Cog):
             return None
         return self.bot.blocklist.validate_permission_names(permissions)
 
-    @commands.group(name='blocklist', hidden=True)
+    @commands.hybrid_group(name='blocklist', hidden=True, fallback='help')
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_guild=True)
     async def blocklist(self, ctx: Context) -> None:
         """Manage bot blocklists."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @blocklist.group(name='global')
+    @blocklist.group(name='global', with_app_command=False)
     @commands.is_owner()
     async def blocklist_global(self, ctx: Context) -> None:
         """Manage global user blocklists."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @blocklist_global.command(name='add')
+    @blocklist_global.command(name='add', with_app_command=False)
     async def blocklist_global_add(
         self,
         ctx: Context,
@@ -180,7 +207,7 @@ class Blocklist(commands.Cog):
             f'{format_bulk_action("Globally", created_count, updated_count, "users")}'
         )
 
-    @blocklist_global.command(name='remove')
+    @blocklist_global.command(name='remove', with_app_command=False)
     async def blocklist_global_remove(
         self,
         ctx: Context,
@@ -197,7 +224,7 @@ class Blocklist(commands.Cog):
 
         await ctx.reply(f':white_check_mark: Removed global blocklist for `{user.id}`.')
 
-    @blocklist_global.command(name='list')
+    @blocklist_global.command(name='list', with_app_command=False)
     async def blocklist_global_list(self, ctx: Context) -> None:
         """List global user blocklists."""
         entries = await self.bot.blocklist.entries_for_scope(BlocklistScope.GLOBAL_USER)
@@ -208,14 +235,14 @@ class Blocklist(commands.Cog):
             empty='No blocklist entries found.',
         )
 
-    @blocklist.group(name='guild')
+    @blocklist.group(name='guild', with_app_command=False)
     @commands.is_owner()
     async def blocklist_guild(self, ctx: Context) -> None:
         """Manage whole-guild blocklists."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @blocklist_guild.command(name='add')
+    @blocklist_guild.command(name='add', with_app_command=False)
     async def blocklist_guild_add(
         self,
         ctx: Context,
@@ -272,7 +299,7 @@ class Blocklist(commands.Cog):
             f'{leave_summary}'
         )
 
-    @blocklist_guild.command(name='remove')
+    @blocklist_guild.command(name='remove', with_app_command=False)
     async def blocklist_guild_remove(self, ctx: Context, guild_id: int) -> None:
         """Remove a whole-guild blocklist."""
         removed = await self.bot.blocklist.remove_entry(
@@ -285,7 +312,7 @@ class Blocklist(commands.Cog):
 
         await ctx.reply(f':white_check_mark: Removed guild blocklist for `{guild_id}`')
 
-    @blocklist_guild.command(name='list')
+    @blocklist_guild.command(name='list', with_app_command=False)
     async def blocklist_guild_list(self, ctx: Context) -> None:
         """List whole-guild blocklists."""
         entries = await self.bot.blocklist.entries_for_scope(BlocklistScope.GUILD)
@@ -296,7 +323,7 @@ class Blocklist(commands.Cog):
             empty='No blocklist entries found.',
         )
 
-    @blocklist.group(name='member')
+    @blocklist.group(name='member', fallback='help')
     @commands.guild_only()
     @commands.check(can_manage_guild_blocklist)
     async def blocklist_member(self, ctx: GuildContext) -> None:
@@ -305,6 +332,10 @@ class Blocklist(commands.Cog):
             await ctx.send_help(ctx.command)
 
     @blocklist_member.command(name='add')
+    @app_commands.describe(
+        members='Space-separated member IDs, mentions, or quoted names',
+        reason='Reason for blocking these members from using the bot',
+    )
     async def blocklist_member_add(
         self,
         ctx: GuildContext,
@@ -340,6 +371,7 @@ class Blocklist(commands.Cog):
         )
 
     @blocklist_member.command(name='remove')
+    @app_commands.describe(member='Member to allow to use the bot again')
     async def blocklist_member_remove(
         self,
         ctx: GuildContext,
@@ -374,6 +406,7 @@ class Blocklist(commands.Cog):
         )
 
     @blocklist.command(name='policy')
+    @app_commands.describe(mode='Command access mode for this server')
     @commands.guild_only()
     @commands.check(can_manage_guild_blocklist)
     async def blocklist_policy(
@@ -389,7 +422,7 @@ class Blocklist(commands.Cog):
         )
         await ctx.reply(f':white_check_mark: Command policy mode set to `{mode}`.')
 
-    @blocklist.group(name='permission')
+    @blocklist.group(name='permission', fallback='help')
     @commands.guild_only()
     @commands.check(can_manage_guild_blocklist)
     async def blocklist_permission(self, ctx: GuildContext) -> None:
@@ -398,12 +431,13 @@ class Blocklist(commands.Cog):
             await ctx.send_help(ctx.command)
 
     @blocklist_permission.command(name='add')
+    @app_commands.describe(permissions='Space-separated Discord permission names')
     async def blocklist_permission_add(
-        self, ctx: GuildContext, *permissions: str
+        self, ctx: GuildContext, *, permissions: str
     ) -> None:
         """Add permissions to this guild's command policy."""
         try:
-            permission_names = self._validate_permissions(list(permissions))
+            permission_names = self._validate_permissions(permissions.split())
         except ValueError as e:
             await ctx.reply(f':warning: Unknown Discord permission `{e.args[0]}`.')
             return
@@ -432,12 +466,13 @@ class Blocklist(commands.Cog):
         )
 
     @blocklist_permission.command(name='remove')
+    @app_commands.describe(permissions='Space-separated Discord permission names')
     async def blocklist_permission_remove(
-        self, ctx: GuildContext, *permissions: str
+        self, ctx: GuildContext, *, permissions: str
     ) -> None:
         """Remove permissions from this guild's command policy."""
         try:
-            permission_names = self._validate_permissions(list(permissions))
+            permission_names = self._validate_permissions(permissions.split())
         except ValueError as e:
             await ctx.reply(f':warning: Unknown Discord permission `{e.args[0]}`.')
             return
@@ -488,7 +523,7 @@ class Blocklist(commands.Cog):
             f':white_check_mark: Removed {removed_count} policy permissions.'
         )
 
-    @blocklist.group(name='channel')
+    @blocklist.group(name='channel', fallback='help')
     @commands.guild_only()
     @commands.check(can_manage_guild_blocklist)
     async def blocklist_channel(self, ctx: GuildContext) -> None:
@@ -497,6 +532,9 @@ class Blocklist(commands.Cog):
             await ctx.send_help(ctx.command)
 
     @blocklist_channel.command(name='add')
+    @app_commands.describe(
+        channels='Space-separated text channel IDs, mentions, or names'
+    )
     async def blocklist_channel_add(
         self,
         ctx: GuildContext,
@@ -525,6 +563,9 @@ class Blocklist(commands.Cog):
         )
 
     @blocklist_channel.command(name='remove')
+    @app_commands.describe(
+        channel='Channel to remove from the policy; defaults to this channel'
+    )
     async def blocklist_channel_remove(
         self,
         ctx: GuildContext,

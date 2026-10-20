@@ -472,6 +472,7 @@ class SnakeGame(commands.Cog):
         return discord.PartialEmoji(name='\N{SNAKE}')
 
     @commands.hybrid_command()
+    @app_commands.describe(size='Width and height of the game board')
     @commands.cooldown(rate=1, per=10, type=commands.BucketType.member)
     @app_commands.choices(
         size=[

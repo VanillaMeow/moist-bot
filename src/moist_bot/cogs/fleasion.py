@@ -50,7 +50,9 @@ FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
 )
 
 
-class Fleasion(commands.Cog):
+class Fleasion(
+    commands.GroupCog, group_description='Manage Fleasion help channel behavior'
+):
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
 
@@ -244,7 +246,7 @@ class Fleasion(commands.Cog):
 
         await message.reply(reply)
 
-    @commands.command()
+    @commands.hybrid_command()
     @commands.has_guild_permissions(manage_guild=True)
     @commands.cooldown(rate=1, per=5, type=commands.BucketType.guild)
     async def toggle(self, ctx: Context) -> None:

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import discord
+from discord import app_commands
 from discord.ext import commands, menus, tasks
 from sqlmodel import col
 
@@ -509,11 +510,13 @@ class Stats(commands.Cog):
         )
         await ctx.reply(embed=embed)
 
-    @commands.group(
+    @commands.hybrid_group(
         aliases=['statistics'],
-        invoke_without_command=True,
+        fallback='show',
         usage='[member]',
     )
+    @app_commands.guild_only()
+    @app_commands.describe(member='Show usage for this member; omit for server totals')
     @commands.guild_only()
     @commands.cooldown(1, 30.0, type=commands.BucketType.member)
     async def stats(
@@ -526,7 +529,7 @@ class Stats(commands.Cog):
             else:
                 await self.show_member_stats(ctx, member)
 
-    @stats.command(name='global')
+    @stats.command(name='global', with_app_command=False)
     @commands.is_owner()
     async def stats_global(self, ctx: Context) -> None:
         """Global all-time command statistics."""
@@ -569,7 +572,7 @@ class Stats(commands.Cog):
         )
         await ctx.reply(embed=embed)
 
-    @stats.command(name='today')
+    @stats.command(name='today', with_app_command=False)
     @commands.is_owner()
     async def stats_today(self, ctx: Context) -> None:
         """Global command statistics for the last 24 hours."""
@@ -628,7 +631,7 @@ class Stats(commands.Cog):
         )
         await ctx.reply(embed=embed)
 
-    @stats.command(name='session')
+    @stats.command(name='session', with_app_command=False)
     @commands.is_owner()
     async def stats_session(self, ctx: Context, limit: int = 12) -> None:
         """Shows current-process command statistics."""
@@ -661,7 +664,8 @@ class Stats(commands.Cog):
             f'```\n{table}\n```'
         )
 
-    @stats.group(name='history', invoke_without_command=True)
+    @stats.group(name='history', fallback='member')
+    @app_commands.describe(member='Whose command history to show; defaults to you')
     @commands.guild_only()
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.member)
     async def stats_history(
@@ -686,6 +690,11 @@ class Stats(commands.Cog):
         )
 
     @stats_history.command(name='command')
+    @app_commands.describe(
+        command='Command name to filter by, including any parent groups',
+        days='Number of days of history to include; must be at least 1',
+    )
+    @commands.guild_only()
     @commands.check(can_view_history)
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.member)
     async def stats_history_command(
@@ -728,7 +737,7 @@ class Stats(commands.Cog):
             include_author=True,
         )
 
-    @stats_history.command(name='global')
+    @stats_history.command(name='global', with_app_command=False)
     @commands.is_owner()
     async def stats_history_global(self, ctx: Context) -> None:
         """Shows recent command history across every guild."""
