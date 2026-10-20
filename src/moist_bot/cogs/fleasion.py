@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, cast
 
+import aiohttp
 import discord
 from discord.ext import commands
 from pydantic import ValidationError
@@ -13,6 +14,11 @@ from moist_bot.services.fleasion import (
     HelpMessageEnum,
     JevHelpClassifier,
     RegexHelpClassifier,
+)
+from moist_bot.services.fleasion.releases import (
+    RELEASES_URL,
+    FleasionDownloadView,
+    fetch_latest_release,
 )
 from moist_bot.settings import settings
 from moist_bot.utils.reload import deep_reload
@@ -50,9 +56,7 @@ FLEASION_CLEANUP_CHANNEL_IDS = frozenset(
 )
 
 
-class Fleasion(
-    commands.GroupCog, group_description='Manage Fleasion help channel behavior'
-):
+class Fleasion(commands.Cog):
     def __init__(self, bot: MoistBot):
         self.bot: MoistBot = bot
 
@@ -133,8 +137,14 @@ class Fleasion(
     async def cog_unload(self) -> None:
         await self._jev_classifier.close()
 
-    def cog_check(self, ctx: Context) -> bool:  # type: ignore[]
-        return bool(ctx.guild) and ctx.guild.id == FLEASION_GUILD_ID
+    def cog_check(self, ctx: Context) -> bool:  # type: ignore[reportIncompatibleMethodOverride]
+        if ctx.guild is None:
+            raise commands.NoPrivateMessage
+        if ctx.command is self.toggle and ctx.guild.id != FLEASION_GUILD_ID:
+            raise commands.CheckFailure(
+                'The help channel toggle can only be used in the Fleasion server.'
+            )
+        return True
 
     @commands.Cog.listener(name='on_message')
     async def on_cleanup_message(self, message: discord.Message):
@@ -246,7 +256,36 @@ class Fleasion(
 
         await message.reply(reply)
 
-    @commands.hybrid_command()
+    @commands.hybrid_group()
+    async def fleasion(self, ctx: Context) -> None:
+        """Manage Fleasion downloads and help channel behavior."""
+        await ctx.send_help(ctx.command)
+
+    @fleasion.command()
+    @commands.has_guild_permissions(manage_guild=True)
+    @commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
+    async def download(self, ctx: Context) -> None:
+        """Post the latest stable Fleasion downloads in this channel."""
+        async with ctx.typing():
+            try:
+                release = await fetch_latest_release(self.bot.session)
+            except aiohttp.ClientError, TimeoutError, ValidationError:
+                log.exception('Failed to fetch the latest Fleasion release')
+                await ctx.send(
+                    'GitHub download information is unavailable right now. '
+                    f'Try again shortly or visit [GitHub releases]({RELEASES_URL}).',
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+                return
+
+            await ctx.send(
+                view=FleasionDownloadView(
+                    release, help_channel_mention=self.help_channel.mention
+                ),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+
+    @fleasion.command()
     @commands.has_guild_permissions(manage_guild=True)
     @commands.cooldown(rate=1, per=5, type=commands.BucketType.guild)
     async def toggle(self, ctx: Context) -> None:
