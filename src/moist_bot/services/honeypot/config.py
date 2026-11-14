@@ -50,6 +50,31 @@ class HoneypotConfig:
         """Return all enabled cached honeypot configs."""
         return tuple(config for config in self._cache.values() if config.enabled)
 
+    async def disable_departed(self) -> int:
+        """Disable enabled configs of guilds the bot is no longer in.
+
+        Catches guilds the bot was removed from while offline, which never
+        produce an ``on_guild_remove`` event.
+
+        Returns
+        -------
+        int
+            Number of configs that were disabled.
+        """
+
+        bot = self.manager.bot
+        departed = [
+            config.guild_id
+            for config in self.enabled()
+            if bot.get_guild(config.guild_id) is None
+        ]
+        for guild_id in departed:
+            await self.disable(guild_id=guild_id, updated_by_id=None)
+
+        if departed:
+            log.info(f'Disabled {len(departed)} honeypot configs of departed guilds.')
+        return len(departed)
+
     async def set(
         self,
         *,
@@ -117,8 +142,11 @@ class HoneypotConfig:
         self._cache[guild_id] = config
         return config
 
-    async def disable(self, *, guild_id: int, updated_by_id: int) -> bool:
-        """Disable a guild honeypot config if one exists."""
+    async def disable(self, *, guild_id: int, updated_by_id: int | None) -> bool:
+        """Disable a guild honeypot config if one exists.
+
+        A ``None`` updater marks the change as made by the bot itself.
+        """
 
         return await self.set_enabled(
             guild_id=guild_id,
@@ -140,7 +168,7 @@ class HoneypotConfig:
         *,
         guild_id: int,
         enabled: bool,
-        updated_by_id: int,
+        updated_by_id: int | None,
     ) -> bool:
         """Set whether a guild honeypot config is enabled if one exists."""
 

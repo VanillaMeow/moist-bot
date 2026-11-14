@@ -202,6 +202,9 @@ class MoistBot(commands.Bot):
         else:
             log.info('Reconnected after disconnect!')
 
+        # Guilds left while offline never fire on_guild_remove
+        await self.spam.config.delete_departed()
+
         # Sync application commands
         if not self.synced:
             await self.wait_until_ready()

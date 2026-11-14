@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,9 @@ if TYPE_CHECKING:
     import discord
 
     from .manager import SpamManager
+
+
+log = logging.getLogger('discord.' + __name__)
 
 
 class SpamConfig:
@@ -256,6 +260,29 @@ class SpamConfig:
 
             self._cache[guild_id] = replace(current, exemptions=frozenset(entities))
             self.manager.clear_memory(guild_id)
+
+    async def delete_departed(self) -> int:
+        """Delete configs of guilds the bot is no longer in.
+
+        Catches guilds the bot was removed from while offline, which never
+        produce an ``on_guild_remove`` event.
+
+        Returns
+        -------
+        int
+            Number of guild configs that were deleted.
+        """
+
+        bot = self.manager.bot
+        departed = [
+            guild_id for guild_id in self._cache if bot.get_guild(guild_id) is None
+        ]
+        for guild_id in departed:
+            await self.delete(guild_id)
+
+        if departed:
+            log.info(f'Deleted {len(departed)} spam configs of departed guilds.')
+        return len(departed)
 
     async def delete(self, guild_id: int) -> None:
         """Remove a departed guild's configuration and counters, retaining incidents.

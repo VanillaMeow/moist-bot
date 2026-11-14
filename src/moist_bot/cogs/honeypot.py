@@ -350,7 +350,11 @@ class Honeypot(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
-        """Start the one-time honeypot scan after the bot is ready."""
+        """Disable configs of departed guilds, then start the one-time scan."""
+
+        # Runs on every ready so removals during a disconnect are caught too
+        await self.bot.honeypot.config.disable_departed()
+
         self.bot.honeypot.scanner.start_once()
 
     @commands.Cog.listener()
@@ -359,7 +363,8 @@ class Honeypot(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild) -> None:
-        await self.bot.honeypot.config.delete(guild_id=guild.id)
+        # Keep the config so it can be re-enabled if the bot rejoins
+        await self.bot.honeypot.config.disable(guild_id=guild.id, updated_by_id=None)
 
     @commands.hybrid_group(name='honeypot', fallback='help')
     @app_commands.guild_only()
